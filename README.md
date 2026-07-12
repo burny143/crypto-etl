@@ -48,3 +48,29 @@ python historical_etl.py
 | **Daily Historical ETL** | `historical_etl.py` | `crypto_historical` | Daily at 00:05 UTC + manual `workflow_dispatch` |
 
 Both workflows support manual triggering from the GitHub Actions tab.
+
+## Dashboard
+
+A simple browser-based dashboard is available at `index.html`.
+
+### Setup
+
+1. Open `index.html` and replace `SUPABASE_URL` and `SUPABASE_ANON_KEY` with your Supabase project credentials (Settings → API).
+2. Run this SQL in your Supabase SQL editor to allow public read access:
+
+```sql
+CREATE POLICY "Allow public read" ON crypto_data FOR SELECT USING (true);
+CREATE POLICY "Allow public read" ON crypto_historical FOR SELECT USING (true);
+ALTER TABLE crypto_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crypto_historical ENABLE ROW LEVEL SECURITY;
+```
+
+3. Open `index.html` in a browser — no server required.
+
+### Features
+
+- Live price cards (current price, 24h change, market cap)
+- Closing price line chart
+- Candlestick chart (OHLCV)
+- Volume bar chart
+- Symbol and timeframe selectors
