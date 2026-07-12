@@ -120,7 +120,15 @@
         const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
         const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
 
-        if (SUPABASE_URL.includes("YOUR_PROJECT") || SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY")) {
+        // NOTE: we check SUPABASE_ANON_KEY.length here instead of .includes("YOUR_ANON_KEY").
+        // The GitHub Actions workflow's `sed -i "s|YOUR_ANON_KEY|...|g"` replaces EVERY
+        // occurrence of that literal string in the file -- including the one inside this
+        // check itself. That made the check self-matching: after injection it became
+        // `SUPABASE_ANON_KEY.includes(SUPABASE_ANON_KEY)`, which is always true, so the
+        // placeholder screen showed up no matter what key was injected. A length check
+        // isn't touched by that sed replacement, since real Supabase keys are much longer
+        // than the 13-character placeholder string.
+        if (SUPABASE_URL.includes("YOUR_PROJECT") || SUPABASE_ANON_KEY.length < 20) {
             document.body.innerHTML = `
                 <div style="background:#1e293b;border-radius:12px;padding:32px;max-width:600px;margin:40px auto;text-align:center;">
                     <h2 style="margin-bottom:16px;">Configure Supabase</h2>
