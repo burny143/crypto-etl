@@ -29,6 +29,7 @@ Pulls cryptocurrency data from **Yahoo Finance (yfinance)** and stores it in **S
 2. In your GitHub repo, add the following **repository secrets**:
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_ANON_KEY` (for the frontend dashboard)
 
 ## Run Locally
 
@@ -55,8 +56,7 @@ A simple browser-based dashboard is available at `index.html`.
 
 ### Setup
 
-1. Open `index.html` and replace `SUPABASE_URL` and `SUPABASE_ANON_KEY` with your Supabase project credentials (Settings → API).
-2. Run this SQL in your Supabase SQL editor to allow public read access:
+Run this SQL in your Supabase SQL editor once to allow public read access:
 
 ```sql
 CREATE POLICY "Allow public read" ON crypto_data FOR SELECT USING (true);
@@ -65,7 +65,13 @@ ALTER TABLE crypto_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crypto_historical ENABLE ROW LEVEL SECURITY;
 ```
 
-3. Open `index.html` in a browser — no server required.
+### Deploy to GitHub Pages
+
+The dashboard is deployed automatically via GitHub Actions (`.github/workflows/deploy.yml`). Supabase credentials are injected from GitHub secrets at build time — no manual editing needed.
+
+1. In your GitHub repo, add the **repository secret** `SUPABASE_ANON_KEY` (find this in Supabase Settings → API).
+2. Push to `main` or run the **Deploy Dashboard** workflow manually from the Actions tab.
+3. Enable GitHub Pages for your repo (Settings → Pages → Source: GitHub Actions).
 
 ### Features
 
