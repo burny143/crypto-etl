@@ -42,9 +42,9 @@ python historical_etl.py
 
 ## Workflows
 
-| Workflow Name | File | Trigger |
-|---------------|------|---------|
-| **Scheduled Crypto ETL** | `.github/workflows/schedule.yml` | Every 30 min + manual `workflow_dispatch` |
-| **Daily Historical ETL** | `.github/workflows/historical_etl.yml` | Daily at 00:05 UTC + manual `workflow_dispatch` |
+| Workflow Name | Script | Target Table | Trigger |
+|---------------|--------|-------------|---------|
+| **Scheduled Crypto ETL** | `etl.py` | `crypto_data` | Every 30 min + manual `workflow_dispatch` |
+| **Daily Historical ETL** | `historical_etl.py` | `crypto_historical` | Daily at 00:05 UTC + manual `workflow_dispatch` |
 
 Both workflows support manual triggering from the GitHub Actions tab.

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+        h1 { font-size: 24px; margin-bottom: 24px; color: #f8fafc; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; }
+        .card .name { font-size: 14px; color: #94a3b8; }
+        .card .price { font-size: 28px; font-weight: 700; margin: 4px 0; }
+        .card .change { font-size: 14px; }
+        .card .mcap { font-size: 12px; color: #64748b; margin-top: 8px; }
+        .up { color: #22c55e; }
+        .down { color: #ef4444; }
+        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+        .chart-box { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; }
+        .chart-box h3 { font-size: 14px; color: #94a3b8; margin-bottom: 12px; }
+        .chart-box canvas { width: 100% !important; height: 300px !important; }
+        .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .controls select { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+        .controls label { font-size: 14px; color: #94a3b8; align-self: center; }
+        .full-width { grid-column: 1 / -1; }
+        @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <h1>Crypto Dashboard</h1>
+
+    <div class="cards" id="priceCards"></div>
+
+    <div class="controls">
+        <label>Symbol:</label>
+        <select id="symbolSelect"></select>
+        <label>Timeframe:</label>
+        <select id="timeframeSelect">
+            <option value="1h">1 Hour</option>
+            <option value="4h">4 Hours</option>
+            <option value="1d" selected>1 Day</option>
+        </select>
+    </div>
+
+    <div class="charts">
+        <div class="chart-box full-width">
+            <h3>Closing Price</h3>
+            <canvas id="lineChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h3>Candlestick</h3>
+            <canvas id="candleChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h3>Volume</h3>
+            <canvas id="volumeChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+        const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+
+        if (SUPABASE_URL.includes("YOUR_PROJECT")) {
+            document.body.innerHTML = `
+                <div style="background:#1e293b;border-radius:12px;padding:32px;max-width:600px;margin:40px auto;text-align:center;">
+                    <h2 style="margin-bottom:16px;">Configure Supabase</h2>
+                    <p style="color:#94a3b8;margin-bottom:24px;">
+                        Open <code style="background:#0f172a;padding:2px 6px;border-radius:4px;">dashboard.html</code>
+                        and replace <code style="background:#0f172a;padding:2px 6px;border-radius:4px;">SUPABASE_URL</code>
+                        and <code style="background:#0f172a;padding:2px 6px;border-radius:4px;">SUPABASE_ANON_KEY</code>
+                        with your Supabase project credentials.
+                    </p>
+                    <p style="color:#64748b;font-size:14px;">
+                        You can find them in your Supabase dashboard under Settings → API.
+                    </p>
+                </div>
+            `;
+        } else {
+            init();
+        }
+
+        async function init() {
+            const supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const symbolSelect = document.getElementById("symbolSelect");
+            const timeframeSelect = document.getElementById("timeframeSelect");
+
+            let currentSymbol = "BTC-USD";
+            let currentTimeframe = "1d";
+
+            async function loadCards() {
+                const { data } = await supabase.from("crypto_data").select("*");
+                const container = document.getElementById("priceCards");
+                if (!data || data.length === 0) {
+                    container.innerHTML = "<div class='card' style='grid-column:1/-1;text-align:center;color:#94a3b8;'>No data loaded yet</div>";
+                    return;
+                }
+                container.innerHTML = data.map(c => {
+                    const change = c.current_price - c.previous_close;
+                    const pct = ((change / c.previous_close) * 100).toFixed(2);
+                    const cls = change >= 0 ? "up" : "down";
+                    const mcap = c.market_cap ? "$" + (c.market_cap / 1e9).toFixed(2) + "B" : "N/A";
+                    return `
+                        <div class="card">
+                            <div class="name">${c.name || c.symbol}</div>
+                            <div class="price">$${c.current_price?.toLocaleString()}</div>
+                            <div class="change ${cls}">${change >= 0 ? "+" : ""}${pct}%</div>
+                            <div class="mcap">Market Cap: ${mcap}</div>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            async function loadSymbols() {
+                const { data } = await supabase.from("crypto_historical").select("symbol").limit(100);
+                if (data) {
+                    const symbols = [...new Set(data.map(d => d.symbol))];
+                    symbolSelect.innerHTML = symbols.map(s => `<option value="${s}">${s}</option>`).join("");
+                    currentSymbol = symbols[0] || "BTC-USD";
+                    symbolSelect.value = currentSymbol;
+                }
+            }
+
+            async function loadCharts() {
+                const { data } = await supabase
+                    .from("crypto_historical")
+                    .select("*")
+                    .eq("symbol", currentSymbol)
+                    .eq("timeframe", currentTimeframe)
+                    .order("datetime", { ascending: true });
+
+                if (!data || data.length === 0) return;
+
+                const dates = data.map(d => new Date(d.datetime).toLocaleDateString());
+                const closes = data.map(d => d.close);
+                const volumes = data.map(d => d.volume || 0);
+                const opens = data.map(d => d.open);
+                const highs = data.map(d => d.high);
+                const lows = data.map(d => d.low);
+
+                new Chart(document.getElementById("lineChart"), {
+                    type: "line",
+                    data: { labels: dates, datasets: [{ label: "Close", data: closes, borderColor: "#3b82f6", backgroundColor: "rgba(59,130,226,0.1)", fill: true, tension: 0.3, pointRadius: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
+                });
+
+                new Chart(document.getElementById("volumeChart"), {
+                    type: "bar",
+                    data: { labels: dates, datasets: [{ label: "Volume", data: volumes, backgroundColor: "rgba(59,130,226,0.5)" }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
+                });
+
+                new Chart(document.getElementById("candleChart"), {
+                    type: "bar",
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: "OHLC",
+                            data: data.map(d => ({ x: new Date(d.datetime), o: d.open, h: d.high, l: d.low, c: d.close })),
+                            borderColor: data.map(d => d.close >= d.open ? "#22c55e" : "#ef4444"),
+                            backgroundColor: data.map(d => d.close >= d.open ? "#22c55e" : "#ef4444"),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `O: ${ctx.raw.o} H: ${ctx.raw.h} L: ${ctx.raw.l} C: ${ctx.raw.c}` } } },
+                        scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } }
+                    }
+                });
+            }
+
+            symbolSelect.addEventListener("change", () => { currentSymbol = symbolSelect.value; loadCharts(); });
+            timeframeSelect.addEventListener("change", () => { currentTimeframe = timeframeSelect.value; loadCharts(); });
+
+            // Clear old charts before redrawing
+            let chartInstances = [];
+            const origChart = Chart;
+            Chart = class extends origChart {
+                constructor(ctx, config) { super(ctx, config); chartInstances.push(this); }
+            };
+
+            await loadCards();
+            await loadSymbols();
+            await loadCharts();
+        }
+    </script>
+</body>
+</html>
