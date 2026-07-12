@@ -5,32 +5,86 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
-        h1 { font-size: 24px; margin-bottom: 24px; color: #f8fafc; }
+        h1 { font-size: 24px; margin-bottom: 4px; color: #f8fafc; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .subtitle { font-size: 13px; color: #64748b; margin-bottom: 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+        .subtitle .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+        #errorBanner { display: none; background: #450a0a; border: 1px solid #ef4444; color: #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+
+        .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat { background: #1e293b; border-radius: 12px; padding: 14px 16px; border: 1px solid #334155; }
+        .stat .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+        .stat .value { font-size: 20px; font-weight: 700; margin-top: 4px; color: #f8fafc; }
+        .stat .sub { font-size: 12px; margin-top: 2px; color: #94a3b8; }
+
+        .toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .toolbar input[type="text"], .toolbar select { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+        .toolbar input[type="text"] { flex: 1; min-width: 160px; }
+        .toolbar button { background: #3b82f6; color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; font-weight: 600; }
+        .toolbar button:hover { background: #2563eb; }
+        .toolbar button.secondary { background: #334155; }
+        .toolbar button.secondary:hover { background: #475569; }
+        .toolbar label.toggle { font-size: 13px; color: #94a3b8; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; }
+        .card { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; cursor: pointer; transition: border-color .15s; }
+        .card:hover { border-color: #3b82f6; }
+        .card.selected { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
         .card .name { font-size: 14px; color: #94a3b8; }
         .card .price { font-size: 28px; font-weight: 700; margin: 4px 0; }
         .card .change { font-size: 14px; }
         .card .mcap { font-size: 12px; color: #64748b; margin-top: 8px; }
         .up { color: #22c55e; }
         .down { color: #ef4444; }
-        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-        .chart-box { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; }
-        .chart-box h3 { font-size: 14px; color: #94a3b8; margin-bottom: 12px; }
-        .chart-box canvas { width: 100% !important; height: 300px !important; }
-        .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .empty-note { grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 24px; }
+
+        .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
         .controls select { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 14px; }
         .controls label { font-size: 14px; color: #94a3b8; align-self: center; }
+
+        .range-stats { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
+        .range-stats .item { font-size: 13px; color: #94a3b8; }
+        .range-stats .item b { color: #f8fafc; font-size: 15px; display: block; }
+
+        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+        .chart-box { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; position: relative; min-height: 340px; }
+        .chart-box h3 { font-size: 14px; color: #94a3b8; margin-bottom: 12px; }
+        .chart-box canvas { width: 100% !important; height: 300px !important; }
+        .chart-box .loading, .chart-box .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 13px; }
         .full-width { grid-column: 1 / -1; }
         @media (max-width: 768px) { .charts { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <h1>Crypto Dashboard</h1>
+    <h1>Crypto Dashboard <span class="dot" id="liveDot" style="display:none;"></span></h1>
+    <div class="subtitle">
+        <span id="lastUpdated">Not loaded yet</span>
+        <label class="toggle"><input type="checkbox" id="autoRefreshToggle"> Auto-refresh every 30s</label>
+    </div>
+
+    <div id="errorBanner"></div>
+
+    <div class="stats-bar" id="statsBar"></div>
+
+    <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search coins by name or symbol...">
+        <select id="sortSelect">
+            <option value="mcap_desc">Sort: Market Cap (high-low)</option>
+            <option value="price_desc">Sort: Price (high-low)</option>
+            <option value="change_desc">Sort: 24h Change (high-low)</option>
+            <option value="change_asc">Sort: 24h Change (low-high)</option>
+            <option value="name_asc">Sort: Name (A-Z)</option>
+        </select>
+        <button class="secondary" id="refreshBtn">Refresh now</button>
+    </div>
 
     <div class="cards" id="priceCards"></div>
 
@@ -44,6 +98,8 @@
             <option value="1d" selected>1 Day</option>
         </select>
     </div>
+
+    <div class="range-stats" id="rangeStats"></div>
 
     <div class="charts">
         <div class="chart-box full-width">
@@ -64,7 +120,7 @@
         const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
         const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
 
-        if (SUPABASE_URL.includes("YOUR_PROJECT")) {
+        if (SUPABASE_URL.includes("YOUR_PROJECT") || SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY")) {
             document.body.innerHTML = `
                 <div style="background:#1e293b;border-radius:12px;padding:32px;max-width:600px;margin:40px auto;text-align:center;">
                     <h2 style="margin-bottom:16px;">Configure Supabase</h2>
@@ -88,108 +144,340 @@
         }
 
         async function init() {
-            const supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            // FIX: the Supabase CDN bundle exposes itself as the global `supabase` object
+            // (with a .createClient method), not `supabaseJs`. Grab createClient off of it
+            // BEFORE we shadow the name with our own local `supabaseClient` variable.
+            const { createClient } = supabase;
+            const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
             const symbolSelect = document.getElementById("symbolSelect");
             const timeframeSelect = document.getElementById("timeframeSelect");
+            const searchInput = document.getElementById("searchInput");
+            const sortSelect = document.getElementById("sortSelect");
+            const refreshBtn = document.getElementById("refreshBtn");
+            const autoRefreshToggle = document.getElementById("autoRefreshToggle");
+            const errorBanner = document.getElementById("errorBanner");
+            const lastUpdatedEl = document.getElementById("lastUpdated");
+            const liveDot = document.getElementById("liveDot");
 
-            let currentSymbol = "BTC-USD";
+            let currentSymbol = "";
             let currentTimeframe = "1d";
+            let cardData = [];
+            let chartInstances = {};
+            let autoRefreshTimer = null;
 
-            async function loadCards() {
-                const { data } = await supabase.from("crypto_data").select("*");
-                const container = document.getElementById("priceCards");
+            function showError(msg) {
+                errorBanner.style.display = "block";
+                errorBanner.textContent = msg;
+                console.error(msg);
+            }
+            function clearError() {
+                errorBanner.style.display = "none";
+                errorBanner.textContent = "";
+            }
+
+            function formatMoney(n) {
+                if (n === null || n === undefined || isNaN(n)) return "N/A";
+                if (Math.abs(n) >= 1e12) return "$" + (n / 1e12).toFixed(2) + "T";
+                if (Math.abs(n) >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+                if (Math.abs(n) >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+                return "$" + n.toLocaleString();
+            }
+
+            function setLastUpdated() {
+                lastUpdatedEl.textContent = "Last updated: " + new Date().toLocaleTimeString();
+            }
+
+            function destroyCharts() {
+                Object.values(chartInstances).forEach(c => { if (c) c.destroy(); });
+                chartInstances = {};
+            }
+
+            function setChartState(boxId, state) {
+                // state: 'loading' | 'empty' | null
+                const box = document.querySelector(`#${boxId}`).closest(".chart-box");
+                let overlay = box.querySelector(".state-overlay");
+                if (overlay) overlay.remove();
+                if (state === "loading") {
+                    box.insertAdjacentHTML("beforeend", `<div class="state-overlay loading">Loading...</div>`);
+                } else if (state === "empty") {
+                    box.insertAdjacentHTML("beforeend", `<div class="state-overlay empty">No data for this symbol/timeframe</div>`);
+                }
+            }
+
+            function renderStatsBar(data) {
+                const bar = document.getElementById("statsBar");
                 if (!data || data.length === 0) {
-                    container.innerHTML = "<div class='card' style='grid-column:1/-1;text-align:center;color:#94a3b8;'>No data loaded yet</div>";
+                    bar.innerHTML = "";
                     return;
                 }
-                container.innerHTML = data.map(c => {
-                    const change = c.current_price - c.previous_close;
-                    const pct = ((change / c.previous_close) * 100).toFixed(2);
-                    const cls = change >= 0 ? "up" : "down";
-                    const mcap = c.market_cap ? "$" + (c.market_cap / 1e9).toFixed(2) + "B" : "N/A";
+                const totalMcap = data.reduce((sum, c) => sum + (c.market_cap || 0), 0);
+                let best = null, worst = null;
+                data.forEach(c => {
+                    if (!c.previous_close) return;
+                    const pct = ((c.current_price - c.previous_close) / c.previous_close) * 100;
+                    if (!best || pct > best.pct) best = { symbol: c.symbol || c.name, pct };
+                    if (!worst || pct < worst.pct) worst = { symbol: c.symbol || c.name, pct };
+                });
+                bar.innerHTML = `
+                    <div class="stat">
+                        <div class="label">Assets tracked</div>
+                        <div class="value">${data.length}</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Combined market cap</div>
+                        <div class="value">${formatMoney(totalMcap)}</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Best 24h performer</div>
+                        <div class="value up">${best ? best.symbol : "N/A"}</div>
+                        <div class="sub">${best ? best.pct.toFixed(2) + "%" : ""}</div>
+                    </div>
+                    <div class="stat">
+                        <div class="label">Worst 24h performer</div>
+                        <div class="value down">${worst ? worst.symbol : "N/A"}</div>
+                        <div class="sub">${worst ? worst.pct.toFixed(2) + "%" : ""}</div>
+                    </div>
+                `;
+            }
+
+            function renderCards() {
+                const container = document.getElementById("priceCards");
+                let list = [...cardData];
+
+                const query = searchInput.value.trim().toLowerCase();
+                if (query) {
+                    list = list.filter(c =>
+                        (c.name || "").toLowerCase().includes(query) ||
+                        (c.symbol || "").toLowerCase().includes(query)
+                    );
+                }
+
+                const sortMode = sortSelect.value;
+                list.sort((a, b) => {
+                    const pctA = a.previous_close ? (a.current_price - a.previous_close) / a.previous_close : 0;
+                    const pctB = b.previous_close ? (b.current_price - b.previous_close) / b.previous_close : 0;
+                    switch (sortMode) {
+                        case "price_desc": return (b.current_price || 0) - (a.current_price || 0);
+                        case "change_desc": return pctB - pctA;
+                        case "change_asc": return pctA - pctB;
+                        case "name_asc": return (a.name || a.symbol || "").localeCompare(b.name || b.symbol || "");
+                        case "mcap_desc":
+                        default: return (b.market_cap || 0) - (a.market_cap || 0);
+                    }
+                });
+
+                if (list.length === 0) {
+                    container.innerHTML = `<div class="empty-note">No coins match your search, or no data loaded yet.</div>`;
+                    return;
+                }
+
+                container.innerHTML = list.map(c => {
+                    const hasPrev = c.previous_close !== null && c.previous_close !== undefined && c.previous_close !== 0;
+                    const change = hasPrev ? c.current_price - c.previous_close : null;
+                    const pct = hasPrev ? ((change / c.previous_close) * 100).toFixed(2) : null;
+                    const cls = hasPrev ? (change >= 0 ? "up" : "down") : "";
+                    const changeLabel = hasPrev ? `${change >= 0 ? "+" : ""}${pct}%` : "N/A";
+                    const isSelected = c.symbol === currentSymbol;
                     return `
-                        <div class="card">
+                        <div class="card ${isSelected ? "selected" : ""}" data-symbol="${c.symbol}">
                             <div class="name">${c.name || c.symbol}</div>
-                            <div class="price">$${c.current_price?.toLocaleString()}</div>
-                            <div class="change ${cls}">${change >= 0 ? "+" : ""}${pct}%</div>
-                            <div class="mcap">Market Cap: ${mcap}</div>
+                            <div class="price">$${(c.current_price ?? 0).toLocaleString()}</div>
+                            <div class="change ${cls}">${changeLabel}</div>
+                            <div class="mcap">Market Cap: ${formatMoney(c.market_cap)}</div>
                         </div>
                     `;
                 }).join("");
+
+                container.querySelectorAll(".card").forEach(el => {
+                    el.addEventListener("click", () => {
+                        const sym = el.getAttribute("data-symbol");
+                        if (symbolSelect.querySelector(`option[value="${sym}"]`)) {
+                            currentSymbol = sym;
+                            symbolSelect.value = sym;
+                            loadCharts();
+                            renderCards();
+                        }
+                    });
+                });
+            }
+
+            async function loadCards() {
+                const { data, error } = await supabaseClient.from("crypto_data").select("*");
+                if (error) {
+                    showError("Failed to load crypto_data: " + error.message);
+                    cardData = [];
+                } else {
+                    clearError();
+                    cardData = data || [];
+                }
+                renderStatsBar(cardData);
+                renderCards();
             }
 
             async function loadSymbols() {
-                const { data } = await supabase.from("crypto_historical").select("symbol").limit(100);
-                if (data) {
-                    const symbols = [...new Set(data.map(d => d.symbol))];
+                const { data, error } = await supabaseClient
+                    .from("crypto_historical")
+                    .select("symbol")
+                    .limit(1000);
+                if (error) {
+                    showError("Failed to load symbols: " + error.message);
+                    return;
+                }
+                if (data && data.length > 0) {
+                    const symbols = [...new Set(data.map(d => d.symbol))].sort();
                     symbolSelect.innerHTML = symbols.map(s => `<option value="${s}">${s}</option>`).join("");
-                    currentSymbol = symbols[0] || "BTC-USD";
+                    if (!currentSymbol || !symbols.includes(currentSymbol)) {
+                        currentSymbol = symbols[0];
+                    }
                     symbolSelect.value = currentSymbol;
                 }
             }
 
+            function renderRangeStats(data) {
+                const el = document.getElementById("rangeStats");
+                if (!data || data.length === 0) {
+                    el.innerHTML = "";
+                    return;
+                }
+                const highs = data.map(d => d.high).filter(v => v !== null && v !== undefined);
+                const lows = data.map(d => d.low).filter(v => v !== null && v !== undefined);
+                const totalVolume = data.reduce((s, d) => s + (d.volume || 0), 0);
+                const periodHigh = highs.length ? Math.max(...highs) : null;
+                const periodLow = lows.length ? Math.min(...lows) : null;
+                el.innerHTML = `
+                    <div class="item">Period high <b>${periodHigh !== null ? "$" + periodHigh.toLocaleString() : "N/A"}</b></div>
+                    <div class="item">Period low <b>${periodLow !== null ? "$" + periodLow.toLocaleString() : "N/A"}</b></div>
+                    <div class="item">Total volume <b>${formatMoney(totalVolume)}</b></div>
+                    <div class="item">Data points <b>${data.length}</b></div>
+                `;
+            }
+
             async function loadCharts() {
-                const { data } = await supabase
+                if (!currentSymbol) return;
+                setChartState("lineChart", "loading");
+                setChartState("candleChart", "loading");
+                setChartState("volumeChart", "loading");
+
+                const { data, error } = await supabaseClient
                     .from("crypto_historical")
                     .select("*")
                     .eq("symbol", currentSymbol)
                     .eq("timeframe", currentTimeframe)
                     .order("datetime", { ascending: true });
 
-                if (!data || data.length === 0) return;
+                if (error) {
+                    showError("Failed to load chart data: " + error.message);
+                    setChartState("lineChart", "empty");
+                    setChartState("candleChart", "empty");
+                    setChartState("volumeChart", "empty");
+                    renderRangeStats([]);
+                    return;
+                }
+                clearError();
+
+                if (!data || data.length === 0) {
+                    destroyCharts();
+                    setChartState("lineChart", "empty");
+                    setChartState("candleChart", "empty");
+                    setChartState("volumeChart", "empty");
+                    renderRangeStats([]);
+                    return;
+                }
+
+                setChartState("lineChart", null);
+                setChartState("candleChart", null);
+                setChartState("volumeChart", null);
+                renderRangeStats(data);
+                destroyCharts();
 
                 const dates = data.map(d => new Date(d.datetime).toLocaleDateString());
                 const closes = data.map(d => d.close);
                 const volumes = data.map(d => d.volume || 0);
-                const opens = data.map(d => d.open);
-                const highs = data.map(d => d.high);
-                const lows = data.map(d => d.low);
 
-                new Chart(document.getElementById("lineChart"), {
+                const lineCtx = document.getElementById("lineChart").getContext("2d");
+                chartInstances.line = new Chart(lineCtx, {
                     type: "line",
-                    data: { labels: dates, datasets: [{ label: "Close", data: closes, borderColor: "#3b82f6", backgroundColor: "rgba(59,130,226,0.1)", fill: true, tension: 0.3, pointRadius: 0 }] },
+                    data: { labels: dates, datasets: [{ label: "Close", data: closes, borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)", fill: true, tension: 0.3, pointRadius: 0 }] },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
                 });
 
-                new Chart(document.getElementById("volumeChart"), {
+                const volCtx = document.getElementById("volumeChart").getContext("2d");
+                chartInstances.volume = new Chart(volCtx, {
                     type: "bar",
-                    data: { labels: dates, datasets: [{ label: "Volume", data: volumes, backgroundColor: "rgba(59,130,226,0.5)" }] },
+                    data: { labels: dates, datasets: [{ label: "Volume", data: volumes, backgroundColor: "rgba(59,130,246,0.5)" }] },
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
                 });
 
-                new Chart(document.getElementById("candleChart"), {
-                    type: "bar",
+                const candleCtx = document.getElementById("candleChart").getContext("2d");
+                const candleData = data.slice(-60).map(d => ({
+                    x: new Date(d.datetime),
+                    o: d.open,
+                    h: d.high,
+                    l: d.low,
+                    c: d.close
+                }));
+
+                chartInstances.candle = new Chart(candleCtx, {
+                    type: "candlestick",
                     data: {
-                        labels: dates,
                         datasets: [{
-                            label: "OHLC",
-                            data: data.map(d => ({ x: new Date(d.datetime), o: d.open, h: d.high, l: d.low, c: d.close })),
-                            borderColor: data.map(d => d.close >= d.open ? "#22c55e" : "#ef4444"),
-                            backgroundColor: data.map(d => d.close >= d.open ? "#22c55e" : "#ef4444"),
-                            borderWidth: 1
+                            label: currentSymbol,
+                            data: candleData,
+                            color: {
+                                up: "#22c55e",
+                                down: "#ef4444",
+                                unchanged: "#94a3b8"
+                            }
                         }]
                     },
                     options: {
                         responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `O: ${ctx.raw.o} H: ${ctx.raw.h} L: ${ctx.raw.l} C: ${ctx.raw.c}` } } },
-                        scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } }
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: {
+                                type: "time",
+                                time: { displayFormats: { day: "MMM d", hour: "MMM d HH:mm" } },
+                                ticks: { maxTicksLimit: 10, color: "#64748b" }
+                            },
+                            y: { ticks: { color: "#64748b" } }
+                        }
                     }
                 });
             }
 
-            symbolSelect.addEventListener("change", () => { currentSymbol = symbolSelect.value; loadCharts(); });
+            async function refreshAll() {
+                await Promise.all([loadCards(), loadCharts()]);
+                setLastUpdated();
+            }
+
+            symbolSelect.addEventListener("change", () => { currentSymbol = symbolSelect.value; loadCharts(); renderCards(); });
             timeframeSelect.addEventListener("change", () => { currentTimeframe = timeframeSelect.value; loadCharts(); });
+            searchInput.addEventListener("input", renderCards);
+            sortSelect.addEventListener("change", renderCards);
+            refreshBtn.addEventListener("click", refreshAll);
 
-            // Clear old charts before redrawing
-            let chartInstances = [];
-            const origChart = Chart;
-            Chart = class extends origChart {
-                constructor(ctx, config) { super(ctx, config); chartInstances.push(this); }
-            };
+            autoRefreshToggle.addEventListener("change", () => {
+                if (autoRefreshToggle.checked) {
+                    autoRefreshTimer = setInterval(refreshAll, 30000);
+                } else {
+                    clearInterval(autoRefreshTimer);
+                    autoRefreshTimer = null;
+                }
+            });
 
-            await loadCards();
+            // Live updates: reflect DB changes to crypto_data instantly without polling.
+            supabaseClient
+                .channel("crypto_data_changes")
+                .on("postgres_changes", { event: "*", schema: "public", table: "crypto_data" }, () => {
+                    liveDot.style.display = "inline-block";
+                    loadCards();
+                    setLastUpdated();
+                })
+                .subscribe();
+
             await loadSymbols();
-            await loadCharts();
+            await refreshAll();
         }
     </script>
 </body>
