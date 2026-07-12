@@ -1,0 +1,21 @@
+name: Daily Historical ETL
+
+on:
+  schedule:
+    - cron: '5 0 * * *'   # 00:05 UTC every day
+  workflow_dispatch:       # allows manual trigger
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install yfinance supabase pandas
+      - name: Run historical ETL
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python historical_etl.py
