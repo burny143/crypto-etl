@@ -4,15 +4,19 @@ Pulls cryptocurrency data from **Yahoo Finance (yfinance)** and stores it in **S
 
 ## Pipelines
 
-### 1. Live Price Snapshot — `etl.py`
+### 1. Live Price Snapshot
 
+- **Script:** `etl.py`
+- **Workflow:** **Scheduled Crypto ETL** (`.github/workflows/schedule.yml`)
 - **What:** Current price, previous close, market cap, and short name
 - **Frequency:** Every 30 minutes via GitHub Actions (`*/30 * * * *`)
 - **Symbols:** BTC-USD, ETH-USD, XRP-USD, SOL-USD, BNB-USD
 - **Target table:** `crypto_data`
 
-### 2. Historical OHLCV — `historical_etl.py`
+### 2. Historical OHLCV
 
+- **Script:** `historical_etl.py`
+- **Workflow:** **Daily Historical ETL** (`.github/workflows/historical_etl.yml`)
 - **What:** Full OHLCV bar history with derived fields (bar return, change %, price range)
 - **Frequency:** Daily at 00:05 UTC via GitHub Actions
 - **Timeframes:** 1d (from 2023-01-01), 1h (from 2026-01-01), 4h (resampled from 1h)
@@ -38,9 +42,9 @@ python historical_etl.py
 
 ## Workflows
 
-| File | Trigger |
-|------|---------|
-| `.github/workflows/schedule.yml` | Every 30 min + manual `workflow_dispatch` |
-| `.github/workflows/historical_etl.yml` | Daily at 00:05 UTC + manual `workflow_dispatch` |
+| Workflow Name | File | Trigger |
+|---------------|------|---------|
+| **Scheduled Crypto ETL** | `.github/workflows/schedule.yml` | Every 30 min + manual `workflow_dispatch` |
+| **Daily Historical ETL** | `.github/workflows/historical_etl.yml` | Daily at 00:05 UTC + manual `workflow_dispatch` |
 
 Both workflows support manual triggering from the GitHub Actions tab.
