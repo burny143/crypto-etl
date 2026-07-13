@@ -324,10 +324,17 @@
             }
 
             async function loadSymbols() {
+                // FIX: previously queried crypto_historical with select("symbol").limit(1000)
+                // and no ORDER BY / DISTINCT. Since that table can have many rows per coin
+                // (every candle, across every timeframe), the first 1000 raw rows returned
+                // could all belong to a single symbol if the ETL writes one coin's full
+                // history before moving to the next -- making the dropdown only ever show
+                // that one coin. crypto_data has exactly one row per tracked coin (it's what
+                // the price cards already use), so building the dropdown from there
+                // guarantees every coin you see as a card is also selectable here.
                 const { data, error } = await supabaseClient
-                    .from("crypto_historical")
-                    .select("symbol")
-                    .limit(1000);
+                    .from("crypto_data")
+                    .select("symbol");
                 if (error) {
                     showError("Failed to load symbols: " + error.message);
                     return;
@@ -393,15 +400,43 @@
                     return;
                 }
 
+                // FIX: dedupe by datetime (in case repeated GitHub Actions ETL runs upserted
+                // the same candle more than once) and coerce OHLCV fields to numbers. If
+                // Supabase/pandas ever stored these as text, comparisons and chart plotting
+                // silently misbehave (candles at wrong y-positions, jagged/nonsensical
+                // shapes) without throwing an error. Rows missing any OHLC value are dropped
+                // rather than plotted as broken candles.
+                const dedupMap = new Map();
+                data.forEach(d => dedupMap.set(d.datetime, d));
+                const cleaned = [...dedupMap.values()]
+                    .map(d => ({
+                        ...d,
+                        open: Number(d.open),
+                        high: Number(d.high),
+                        low: Number(d.low),
+                        close: Number(d.close),
+                        volume: Number(d.volume) || 0
+                    }))
+                    .filter(d => [d.open, d.high, d.low, d.close].every(v => Number.isFinite(v)))
+                    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
+                if (cleaned.length === 0) {
+                    setChartState("lineChart", "empty");
+                    setChartState("candleChart", "empty");
+                    setChartState("volumeChart", "empty");
+                    renderRangeStats([]);
+                    return;
+                }
+
                 setChartState("lineChart", null);
                 setChartState("candleChart", null);
                 setChartState("volumeChart", null);
-                renderRangeStats(data);
+                renderRangeStats(cleaned);
                 destroyCharts();
 
-                const dates = data.map(d => new Date(d.datetime).toLocaleDateString());
-                const closes = data.map(d => d.close);
-                const volumes = data.map(d => d.volume || 0);
+                const dates = cleaned.map(d => new Date(d.datetime).toLocaleDateString());
+                const closes = cleaned.map(d => d.close);
+                const volumes = cleaned.map(d => d.volume || 0);
 
                 const lineCtx = document.getElementById("lineChart").getContext("2d");
                 chartInstances.line = new Chart(lineCtx, {
@@ -418,7 +453,7 @@
                 });
 
                 const candleCtx = document.getElementById("candleChart").getContext("2d");
-                const candleData = data.slice(-60).map(d => ({
+                const candleData = cleaned.slice(-60).map(d => ({
                     x: new Date(d.datetime),
                     o: d.open,
                     h: d.high,
