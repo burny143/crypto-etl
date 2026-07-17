@@ -57,6 +57,7 @@
         .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
         .chart-box { background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; position: relative; min-height: 340px; }
         .chart-box h3 { font-size: 14px; color: #94a3b8; margin-bottom: 12px; }
+        .chart-note { font-size: 11px; color: #475569; font-weight: 400; margin-left: 8px; }
         .chart-box canvas { width: 100% !important; height: 300px !important; }
         .chart-box .loading, .chart-box .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 13px; }
         .full-width { grid-column: 1 / -1; }
@@ -107,12 +108,16 @@
             <canvas id="lineChart"></canvas>
         </div>
         <div class="chart-box">
-            <h3>Candlestick</h3>
+            <h3>Candlestick <span class="chart-note" id="candleNote"></span></h3>
             <canvas id="candleChart"></canvas>
         </div>
         <div class="chart-box">
             <h3>Volume</h3>
             <canvas id="volumeChart"></canvas>
+        </div>
+        <div class="chart-box full-width">
+            <h3>RSI (14)</h3>
+            <canvas id="rsiChart"></canvas>
         </div>
     </div>
 
@@ -182,6 +187,28 @@
             function clearError() {
                 errorBanner.style.display = "none";
                 errorBanner.textContent = "";
+            }
+
+            // SECURITY: symbol/name fields are interpolated into template literals below
+            // (card markup, dropdown options). They come from Supabase, not a trusted
+            // constant, so escape them before insertion in case a row ever contains
+            // unexpected characters (bad ETL write, manual DB edit, etc).
+            function escapeHtml(str) {
+                if (str === null || str === undefined) return "";
+                return String(str)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function debounce(fn, ms) {
+                let t = null;
+                return (...args) => {
+                    clearTimeout(t);
+                    t = setTimeout(() => fn(...args), ms);
+                };
             }
 
             function formatMoney(n) {
@@ -288,8 +315,8 @@
                     const changeLabel = hasPrev ? `${change >= 0 ? "+" : ""}${pct}%` : "N/A";
                     const isSelected = c.symbol === currentSymbol;
                     return `
-                        <div class="card ${isSelected ? "selected" : ""}" data-symbol="${c.symbol}">
-                            <div class="name">${c.name || c.symbol}</div>
+                        <div class="card ${isSelected ? "selected" : ""}" data-symbol="${escapeHtml(c.symbol)}">
+                            <div class="name">${escapeHtml(c.name || c.symbol)}</div>
                             <div class="price">$${(c.current_price ?? 0).toLocaleString()}</div>
                             <div class="change ${cls}">${changeLabel}</div>
                             <div class="mcap">Market Cap: ${formatMoney(c.market_cap)}</div>
@@ -341,7 +368,7 @@
                 }
                 if (data && data.length > 0) {
                     const symbols = [...new Set(data.map(d => d.symbol))].sort();
-                    symbolSelect.innerHTML = symbols.map(s => `<option value="${s}">${s}</option>`).join("");
+                    symbolSelect.innerHTML = symbols.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
                     if (!currentSymbol || !symbols.includes(currentSymbol)) {
                         currentSymbol = symbols[0];
                     }
@@ -368,11 +395,52 @@
                 `;
             }
 
+            // Simple moving average. Returns an array the same length as `closes`,
+            // with `null` for indices before the window is full (so Chart.js just
+            // leaves a gap instead of plotting a misleadingly flat/zero line).
+            function computeSMA(closes, period) {
+                const out = new Array(closes.length).fill(null);
+                let sum = 0;
+                for (let i = 0; i < closes.length; i++) {
+                    sum += closes[i];
+                    if (i >= period) sum -= closes[i - period];
+                    if (i >= period - 1) out[i] = sum / period;
+                }
+                return out;
+            }
+
+            // Wilder's RSI(14). Returns an array aligned with `closes`; the first
+            // `period` entries are null since there aren't enough prior deltas yet.
+            function computeRSI(closes, period = 14) {
+                const out = new Array(closes.length).fill(null);
+                if (closes.length <= period) return out;
+
+                let gainSum = 0, lossSum = 0;
+                for (let i = 1; i <= period; i++) {
+                    const delta = closes[i] - closes[i - 1];
+                    if (delta >= 0) gainSum += delta; else lossSum -= delta;
+                }
+                let avgGain = gainSum / period;
+                let avgLoss = lossSum / period;
+                out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+                for (let i = period + 1; i < closes.length; i++) {
+                    const delta = closes[i] - closes[i - 1];
+                    const gain = delta > 0 ? delta : 0;
+                    const loss = delta < 0 ? -delta : 0;
+                    avgGain = (avgGain * (period - 1) + gain) / period;
+                    avgLoss = (avgLoss * (period - 1) + loss) / period;
+                    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+                }
+                return out;
+            }
+
             async function loadCharts() {
                 if (!currentSymbol) return;
                 setChartState("lineChart", "loading");
                 setChartState("candleChart", "loading");
                 setChartState("volumeChart", "loading");
+                setChartState("rsiChart", "loading");
 
                 const { data, error } = await supabaseClient
                     .from("crypto_historical")
@@ -386,6 +454,7 @@
                     setChartState("lineChart", "empty");
                     setChartState("candleChart", "empty");
                     setChartState("volumeChart", "empty");
+                    setChartState("rsiChart", "empty");
                     renderRangeStats([]);
                     return;
                 }
@@ -396,6 +465,7 @@
                     setChartState("lineChart", "empty");
                     setChartState("candleChart", "empty");
                     setChartState("volumeChart", "empty");
+                    setChartState("rsiChart", "empty");
                     renderRangeStats([]);
                     return;
                 }
@@ -424,6 +494,7 @@
                     setChartState("lineChart", "empty");
                     setChartState("candleChart", "empty");
                     setChartState("volumeChart", "empty");
+                    setChartState("rsiChart", "empty");
                     renderRangeStats([]);
                     return;
                 }
@@ -431,35 +502,106 @@
                 setChartState("lineChart", null);
                 setChartState("candleChart", null);
                 setChartState("volumeChart", null);
+                setChartState("rsiChart", null);
                 renderRangeStats(cleaned);
                 destroyCharts();
 
-                const dates = cleaned.map(d => new Date(d.datetime).toLocaleDateString());
+                // FIX: line/volume charts now use a real Chart.js "time" x-axis (same as
+                // the candlestick chart) instead of toLocaleDateString() string labels.
+                // String labels collapsed every intraday point from the same calendar
+                // day into one tick on the 1h/4h timeframes, destroying resolution
+                // exactly when it mattered most. Using actual Date objects fixes that
+                // and keeps all three charts' x-axes visually aligned.
+                const timePoints = cleaned.map(d => new Date(d.datetime));
                 const closes = cleaned.map(d => d.close);
                 const volumes = cleaned.map(d => d.volume || 0);
+                const sma20 = computeSMA(closes, 20);
+                const sma50 = computeSMA(closes, 50);
+                const rsi14 = computeRSI(closes, 14);
+
+                const timeAxis = {
+                    type: "time",
+                    time: { displayFormats: { hour: "MMM d HH:mm", day: "MMM d" } },
+                    ticks: { maxTicksLimit: 10, color: "#64748b" }
+                };
 
                 const lineCtx = document.getElementById("lineChart").getContext("2d");
                 chartInstances.line = new Chart(lineCtx, {
                     type: "line",
-                    data: { labels: dates, datasets: [{ label: "Close", data: closes, borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)", fill: true, tension: 0.3, pointRadius: 0 }] },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
+                    data: {
+                        datasets: [
+                            {
+                                label: "Close",
+                                data: timePoints.map((t, i) => ({ x: t, y: closes[i] })),
+                                borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)",
+                                fill: true, tension: 0.3, pointRadius: 0, order: 3
+                            },
+                            {
+                                label: "SMA 20",
+                                data: timePoints.map((t, i) => ({ x: t, y: sma20[i] })),
+                                borderColor: "#f59e0b", borderWidth: 1.5, pointRadius: 0,
+                                fill: false, tension: 0.2, spanGaps: false, order: 1
+                            },
+                            {
+                                label: "SMA 50",
+                                data: timePoints.map((t, i) => ({ x: t, y: sma50[i] })),
+                                borderColor: "#a855f7", borderWidth: 1.5, pointRadius: 0,
+                                fill: false, tension: 0.2, spanGaps: false, order: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: true, position: "top", labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } } },
+                        scales: { x: timeAxis, y: { ticks: { color: "#64748b" } } }
+                    }
                 });
 
                 const volCtx = document.getElementById("volumeChart").getContext("2d");
                 chartInstances.volume = new Chart(volCtx, {
                     type: "bar",
-                    data: { labels: dates, datasets: [{ label: "Volume", data: volumes, backgroundColor: "rgba(59,130,246,0.5)" }] },
-                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 10, color: "#64748b" } }, y: { ticks: { color: "#64748b" } } } }
+                    data: { datasets: [{ label: "Volume", data: timePoints.map((t, i) => ({ x: t, y: volumes[i] })), backgroundColor: "rgba(59,130,246,0.5)" }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: timeAxis, y: { ticks: { color: "#64748b" } } } }
+                });
+
+                const rsiCtx = document.getElementById("rsiChart").getContext("2d");
+                chartInstances.rsi = new Chart(rsiCtx, {
+                    type: "line",
+                    data: {
+                        datasets: [{
+                            label: "RSI (14)",
+                            data: timePoints.map((t, i) => ({ x: t, y: rsi14[i] })),
+                            borderColor: "#38bdf8", borderWidth: 1.5, pointRadius: 0,
+                            fill: false, tension: 0.2, spanGaps: false
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: timeAxis,
+                            y: {
+                                min: 0, max: 100,
+                                ticks: { color: "#64748b", stepSize: 25 },
+                                grid: { color: (ctx) => (ctx.tick.value === 30 || ctx.tick.value === 70) ? "rgba(239,68,68,0.35)" : "rgba(255,255,255,0.05)" }
+                            }
+                        }
+                    }
                 });
 
                 const candleCtx = document.getElementById("candleChart").getContext("2d");
-                const candleData = cleaned.slice(-60).map(d => ({
+                const candleSlice = cleaned.slice(-60);
+                const candleData = candleSlice.map(d => ({
                     x: new Date(d.datetime),
                     o: d.open,
                     h: d.high,
                     l: d.low,
                     c: d.close
                 }));
+                // Candlestick chart only plots the most recent 60 candles for
+                // readability; make that truncation visible instead of silent.
+                document.getElementById("candleNote").textContent =
+                    cleaned.length > 60 ? `(showing last 60 of ${cleaned.length})` : "";
 
                 chartInstances.candle = new Chart(candleCtx, {
                     type: "candlestick",
@@ -496,7 +638,7 @@
 
             symbolSelect.addEventListener("change", () => { currentSymbol = symbolSelect.value; loadCharts(); renderCards(); });
             timeframeSelect.addEventListener("change", () => { currentTimeframe = timeframeSelect.value; loadCharts(); });
-            searchInput.addEventListener("input", renderCards);
+            searchInput.addEventListener("input", debounce(renderCards, 150));
             sortSelect.addEventListener("change", renderCards);
             refreshBtn.addEventListener("click", refreshAll);
 
@@ -510,14 +652,26 @@
             });
 
             // Live updates: reflect DB changes to crypto_data instantly without polling.
-            supabaseClient
+            // FIX: debounced (500ms) so a burst of near-simultaneous row changes (e.g.
+            // an ETL run upserting many symbols back-to-back) triggers one reload
+            // instead of one full fetch + full card re-render per row event.
+            const debouncedLiveReload = debounce(() => {
+                liveDot.style.display = "inline-block";
+                loadCards();
+                setLastUpdated();
+            }, 500);
+
+            const realtimeChannel = supabaseClient
                 .channel("crypto_data_changes")
-                .on("postgres_changes", { event: "*", schema: "public", table: "crypto_data" }, () => {
-                    liveDot.style.display = "inline-block";
-                    loadCards();
-                    setLastUpdated();
-                })
+                .on("postgres_changes", { event: "*", schema: "public", table: "crypto_data" }, debouncedLiveReload)
                 .subscribe();
+
+            // Cleanup: avoid leaking the realtime socket and refresh timer if this
+            // script is ever re-run or embedded in a longer-lived SPA route.
+            window.addEventListener("beforeunload", () => {
+                if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+                supabaseClient.removeChannel(realtimeChannel);
+            });
 
             await loadSymbols();
             await refreshAll();
