@@ -140,6 +140,24 @@
         .order-item .o-status.filled { background: rgba(8,153,129,0.15); color: var(--up); }
         .order-item .o-status.pending { background: rgba(245,158,11,0.15); color: #f59e0b; }
         .order-item .o-status.cancelled { background: rgba(242,54,69,0.15); color: var(--down); }
+
+        /* Strategy Results Panel */
+        .strat-feed { padding: 8px 12px; max-height: 300px; overflow-y: auto; }
+        .strat-item { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; cursor: pointer; transition: 0.2s; font-size: 11px; }
+        .strat-item:hover { border-color: var(--accent); }
+        .strat-item.active { border-color: var(--up); background: rgba(8,153,129,0.08); }
+        .strat-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .strat-name { font-weight: 600; font-size: 12px; }
+        .strat-sharpe { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+        .strat-sharpe.good { background: rgba(8,153,129,0.15); color: var(--up); }
+        .strat-sharpe.ok { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .strat-sharpe.bad { background: rgba(242,54,69,0.15); color: var(--down); }
+        .strat-metrics { display: flex; gap: 8px; color: var(--text-muted); font-size: 10px; flex-wrap: wrap; }
+        .strat-params { font-size: 9px; color: var(--text-muted); margin-top: 3px; opacity: 0.7; }
+        .strat-loading { text-align: center; color: var(--text-muted); font-size: 11px; padding: 12px; }
+        .strat-apply-btn { float: right; background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 3px; padding: 1px 6px; cursor: pointer; font-size: 9px; }
+        .strat-apply-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .strat-oos { font-size: 9px; color: var(--text-muted); background: rgba(255,255,255,0.05); border-radius: 3px; padding: 1px 4px; }
     </style>
 </head>
 <body>
@@ -224,6 +242,15 @@
             </div>
             <div class="research-feed" id="researchFeed">
                 <div style="text-align:center; color: var(--text-muted); font-size: 13px; margin-top: 20px;">Loading insights...</div>
+            </div>
+
+            <!-- Strategy Results -->
+            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+                <span>Top Strategies</span>
+                <span id="stratCount" style="font-size:10px;color:var(--text-muted)"></span>
+            </div>
+            <div class="strat-feed" id="stratFeed">
+                <div class="strat-loading">Select a pair to see top strategies...</div>
             </div>
 
             <!-- Paper Trading -->
@@ -892,6 +919,7 @@
             updateSelectedPairInfo();
             loadChartData();
             loadResearch();
+            loadStrategyResults();
         }
 
         // Indicator Math Functions
@@ -1115,6 +1143,236 @@
             signalChartMarkers = [];
             if (candleSeries) candleSeries.setMarkers([]);
             document.getElementById('signalResult').innerHTML = '';
+            // Also clear strategy overlay
+            document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
+        }
+
+        // ── Strategy Results Loader ──
+        // Maps research strategy types to JS signal functions compatible with our indicator engine.
+        // Each returns an array of {time, signal: 1|-1} signal points.
+        const STRATEGY_SIGNAL_FNS = {
+            rsi_reversion: (data, p) => {
+                const rsi = computeRSI(data, {period: p.period});
+                return rsi.filter(x => x.value < p.oversold).map(x => ({time: x.time, signal: 1}))
+                    .concat(rsi.filter(x => x.value > p.overbought).map(x => ({time: x.time, signal: -1})));
+            },
+            macd_crossover: (data, p) => {
+                const m = computeMACD(data, p.fast, p.slow, p.signal);
+                const sig = [];
+                for (let i = 1; i < m.macd.length; i++) {
+                    if (m.macd[i-1].value <= m.signal[i-1].value && m.macd[i].value > m.signal[i].value)
+                        sig.push({time: m.macd[i].time, signal: 1});
+                    if (m.macd[i-1].value >= m.signal[i-1].value && m.macd[i].value < m.signal[i].value)
+                        sig.push({time: m.macd[i].time, signal: -1});
+                }
+                return sig;
+            },
+            bb_reversion: (data, p) => {
+                const bb = computeBB(data, p.period, p.std);
+                const sig = [];
+                for (let i = 0; i < data.length; i++) {
+                    const lower = bb.lower.find(x => x.time === data[i].time);
+                    const upper = bb.upper.find(x => x.time === data[i].time);
+                    if (lower && data[i].close < lower.value) sig.push({time: data[i].time, signal: 1});
+                    if (upper && data[i].close > upper.value) sig.push({time: data[i].time, signal: -1});
+                }
+                return sig;
+            },
+            ema_crossover: (data, p) => {
+                const fast = computeEMA(data, p.fast);
+                const slow = computeEMA(data, p.slow);
+                const sig = [];
+                for (let i = 1; i < data.length; i++) {
+                    const f = fast.find(x => x.time === data[i].time);
+                    const s = slow.find(x => x.time === data[i].time);
+                    const f_prev = fast.find(x => x.time === data[i-1].time);
+                    const s_prev = slow.find(x => x.time === data[i-1].time);
+                    if (f && s && f_prev && s_prev) {
+                        if (f_prev.value <= s_prev.value && f.value > s.value) sig.push({time: data[i].time, signal: 1});
+                        if (f_prev.value >= s_prev.value && f.value < s.value) sig.push({time: data[i].time, signal: -1});
+                    }
+                }
+                return sig;
+            },
+            stoch_rsi: (data, p) => {
+                const sd = computeStochRSI(data, p.period, p.smooth_k || 3, p.smooth_d || 3);
+                const k = sd.k || sd;
+                const d = sd.d || [];
+                const sig = [];
+                for (let i = 1; i < k.length; i++) {
+                    const oversold = p.oversold || 20;
+                    const overbought = p.overbought || 80;
+                    const dVal = Array.isArray(d) ? d.find(x => x.time === k[i].time) : null;
+                    const dPrev = Array.isArray(d) ? d.find(x => x.time === k[i-1].time) : null;
+                    if (k[i].value < oversold && dPrev && k[i-1].value <= dPrev.value && k[i].value > (dVal ? dVal.value : 999))
+                        sig.push({time: k[i].time, signal: 1});
+                    if (k[i].value > overbought && dPrev && k[i-1].value >= dPrev.value && k[i].value < (dVal ? dVal.value : -1))
+                        sig.push({time: k[i].time, signal: -1});
+                }
+                return sig;
+            },
+            kc_breakout: (data, p) => {
+                const kc = computeKC(data, p.period, p.mult);
+                const sig = [];
+                for (let i = 0; i < data.length; i++) {
+                    const upper = kc.upper.find(x => x.time === data[i].time);
+                    const lower = kc.lower.find(x => x.time === data[i].time);
+                    if (upper && data[i].close > upper.value) sig.push({time: data[i].time, signal: 1});
+                    if (lower && data[i].close < lower.value) sig.push({time: data[i].time, signal: -1});
+                }
+                return sig;
+            },
+            rsi_adx_combo: (data, p) => {
+                const rsi = computeRSI(data, {period: p.rsi_period || 14});
+                const adx = computeADX(data, {period: p.adx_period || 14});
+                const ema12 = computeEMA(data, 12);
+                const ema26 = computeEMA(data, 26);
+                const threshold = p.adx_threshold || 25;
+                const sig = [];
+                for (let i = 0; i < data.length; i++) {
+                    const r = rsi.find(x => x.time === data[i].time);
+                    const a = adx.find(x => x.time === data[i].time);
+                    const e12 = ema12.find(x => x.time === data[i].time);
+                    const e26 = ema26.find(x => x.time === data[i].time);
+                    if (!r || !a || !e12 || !e26) continue;
+                    // Mean reversion in low trend
+                    if (a.value < threshold && r.value < (p.rsi_oversold || 25)) sig.push({time: data[i].time, signal: 1});
+                    if (a.value < threshold && r.value > (p.rsi_overbought || 75)) sig.push({time: data[i].time, signal: -1});
+                    // Trend follow in high trend
+                    if (a.value >= threshold && e12.value > e26.value) sig.push({time: data[i].time, signal: 1});
+                    if (a.value >= threshold && e12.value < e26.value) sig.push({time: data[i].time, signal: -1});
+                }
+                return sig;
+            },
+            rsi_vol_combo: (data, p) => {
+                const rsi = computeRSI(data, {period: p.rsi_period || 14});
+                const vr = computeVolRatio(data, {period: p.vol_period || 20});
+                const sig = [];
+                for (let i = 0; i < data.length; i++) {
+                    const r = rsi.find(x => x.time === data[i].time);
+                    const v = vr.find(x => x.time === data[i].time);
+                    if (!r || !v) continue;
+                    if (r.value < (p.rsi_oversold || 25) && v.value > (p.vol_mult || 1.5)) sig.push({time: data[i].time, signal: 1});
+                    if (r.value > (p.rsi_overbought || 75) && v.value > (p.vol_mult || 1.5)) sig.push({time: data[i].time, signal: -1});
+                }
+                return sig;
+            },
+        };
+
+        async function loadStrategyResults() {
+            const feed = document.getElementById('stratFeed');
+            const countEl = document.getElementById('stratCount');
+            feed.innerHTML = '<div class="strat-loading">Loading...</div>';
+            countEl.textContent = '';
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('strategy_results')
+                    .select('strategy_name, symbol, timeframe, params, sharpe_ratio, total_return_pct, max_drawdown_pct, win_rate, profit_factor, trade_count, validation')
+                    .eq('symbol', currentSymbol)
+                    .eq('timeframe', currentTimeframe)
+                    .eq('validation', 'out_of_sample')
+                    .gte('trade_count', 10)
+                    .order('sharpe_ratio', { ascending: false })
+                    .limit(15);
+
+                if (error) throw error;
+
+                // If no OOS results with >=10 trades, fall back to in-sample
+                let results = data || [];
+                if (results.length === 0) {
+                    const { data: isData } = await supabaseClient
+                        .from('strategy_results')
+                        .select('strategy_name, symbol, timeframe, params, sharpe_ratio, total_return_pct, max_drawdown_pct, win_rate, profit_factor, trade_count, validation')
+                        .eq('symbol', currentSymbol)
+                        .eq('timeframe', currentTimeframe)
+                        .eq('validation', 'in_sample')
+                        .gte('trade_count', 10)
+                        .order('sharpe_ratio', { ascending: false })
+                        .limit(10);
+                    results = (isData || []).map(r => ({...r, _fallback: true}));
+                }
+
+                if (!results || results.length === 0) {
+                    feed.innerHTML = '<div class="strat-loading">No strategies found for this pair.</div>';
+                    countEl.textContent = '';
+                    return;
+                }
+
+                countEl.textContent = `${results.length} results`;
+                feed.innerHTML = results.map((r, idx) => {
+                    const paramStr = Object.entries(r.params || {}).map(([k,v]) => `${k}=${v}`).join(', ');
+                    const shp = r.sharpe_ratio || 0;
+                    const shpCls = shp >= 5 ? 'good' : shp >= 1 ? 'ok' : 'bad';
+                    const label = r._fallback ? '(IS)' : '(OOS)';
+                    const encoded = encodeURIComponent(JSON.stringify(r.params));
+                    return `
+                        <div class="strat-item" data-idx="${idx}" data-strategy="${r.strategy_name}"
+                             data-params="${encoded}">
+                            <div class="strat-head">
+                                <span class="strat-name">${r.strategy_name.replace(/_/g, ' ')}</span>
+                                <span class="strat-sharpe ${shpCls}">S ${shp.toFixed(1)}</span>
+                            </div>
+                            <div class="strat-metrics">
+                                <span>Ret: ${(r.total_return_pct || 0).toFixed(1)}%</span>
+                                <span>DD: ${(r.max_drawdown_pct || 0).toFixed(1)}%</span>
+                                <span>WR: ${(r.win_rate || 0).toFixed(0)}%</span>
+                                <span>Trades: ${r.trade_count || 0}</span>
+                                <span class="strat-oos">${label}</span>
+                            </div>
+                            <div class="strat-params">${paramStr}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch(e) {
+                console.error('Strategy results error:', e);
+                feed.innerHTML = '<div class="strat-loading">Failed to load strategies.</div>';
+            }
+        }
+
+        function applyStrategySignals(strategyName, params) {
+            const fn = STRATEGY_SIGNAL_FNS[strategyName];
+            if (!fn || !historicalData || historicalData.length === 0) return;
+
+            // Highlight this strategy card
+            document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
+            const cards = document.querySelectorAll('.strat-item');
+            for (const card of cards) {
+                if (card.dataset.strategy === strategyName &&
+                    JSON.stringify(card.dataset.params) === JSON.stringify(params)) {
+                    card.classList.add('active');
+                }
+            }
+
+            // Generate signals
+            const signals = fn(historicalData, params);
+            if (signals.length === 0) {
+                document.getElementById('signalResult').innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No signals generated.</div>';
+                return;
+            }
+
+            // Render markers on chart
+            signalChartMarkers = signals.map(s => {
+                return s.signal === 1
+                    ? { time: s.time, position: 'belowBar', shape: 'arrowUp', color: '#089981', text: 'B' }
+                    : { time: s.time, position: 'aboveBar', shape: 'arrowDown', color: '#F23645', text: 'S' };
+            });
+            if (candleSeries) candleSeries.setMarkers(signalChartMarkers);
+
+            // Show summary
+            const buys = signals.filter(s => s.signal === 1).length;
+            const sells = signals.filter(s => s.signal === -1).length;
+            const last = signals[signals.length - 1].signal;
+            document.getElementById('signalResult').innerHTML = `
+                <div style="font-size:11px;padding:4px;">
+                    <span style="color:var(--up)">B: ${buys}</span>
+                    <span style="color:var(--down);margin-left:8px;">S: ${sells}</span>
+                    <span style="color:var(--text-muted);margin-left:8px;font-size:10px;">
+                        Last: <strong>${last === 1 ? 'BUY' : 'SELL'}</strong>
+                    </span>
+                    <button onclick="clearSignal()" style="float:right;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:3px;padding:0 5px;cursor:pointer;font-size:10px;">X</button>
+                </div>
+            `;
         }
 
         // ── Research Generation (pure JS — computes locally, writes to Supabase) ──
@@ -1487,6 +1745,7 @@
             e.target.classList.add('active');
             currentTimeframe = e.target.getAttribute('data-tf');
             loadChartData();
+            loadStrategyResults();
         });
 
         // Fetch & Render Chart Data
@@ -1531,6 +1790,7 @@
             document.querySelectorAll('.ind-cb:checked').forEach(cb => { checkedNames.push(cb.value); });
             checkedNames.forEach(name => toggleIndicator(name, true, true));
             refreshTradingUI();
+            loadStrategyResults();
         }
 
         // Fetch AI Research
@@ -1558,6 +1818,17 @@
             }).join("");
         }
 
+        // Delegated click for strategy items
+        document.getElementById('stratFeed').addEventListener('click', (e) => {
+            const item = e.target.closest('.strat-item');
+            if (!item) return;
+            const strategy = item.dataset.strategy;
+            const params = JSON.parse(decodeURIComponent(item.dataset.params));
+            applyStrategySignals(strategy, params);
+        });
+
+        let _bootStratTimer = null;
+
         // Boot
         initChart();
         initIndicators();
@@ -1567,6 +1838,8 @@
         loadChartData();
         loadResearch();
         initTrading();
+        // Load strategies after chart data settles
+        _bootStratTimer = setTimeout(loadStrategyResults, 2000);
     </script>
 </body>
 </html>
