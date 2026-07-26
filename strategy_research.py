@@ -1,27 +1,35 @@
 #!/usr/bin/env python3
 """
-strategy_research.py ? Strategy Research Engine
+strategy_research.py — Strategy Research Engine v2.0
 
-Fetches OHLCV data from Supabase, computes indicators, and runs parameter sweeps
-across strategy templates inspired by vibe-trading research patterns.
-Reports best-performing strategies with full metrics.
+Fetches OHLCV data from Supabase, computes indicators, runs walk-forward
+parameter sweeps across 8 strategy templates. Reports in-sample vs out-of-sample
+performance so you can distinguish genuine edge from overfit.
 
-Strategy templates implemented:
-  1. RSI Mean Reversion     ? oversold ? long, overbought ? short
-  2. MACD Crossover         ? MACD crosses signal line
-  3. Bollinger Bands        ? price touches lower/upper band
-  4. EMA Crossover          ? fast/slow EMA trend following
-  5. StochRSI               ? K crosses D at extremes
-  6. Keltner Channel        ? price breaks upper/lower channel
-  7. RSI + ADX Combo        ? RSI extremes filtered by trend strength
-  8. RSI + Volume Combo     ? RSI extremes confirmed by volume spike
+Strategy templates:
+  1. RSI Mean Reversion      oversold → long, overbought → short
+  2. MACD Crossover          MACD crosses signal line
+  3. Bollinger Bands         price touches lower/upper band
+  4. EMA Crossover           fast/slow EMA trend following
+  5. StochRSI                K crosses D at extremes
+  6. Keltner Channel         price breaks upper/lower channel
+  7. RSI + ADX Combo         RSI extremes filtered by trend strength
+  8. RSI + Volume Combo      RSI extremes confirmed by volume spike
+
+Walk-forward validation:
+  - Splits data at train_pct (default 70/30)
+  - Sweeps ALL parameter combos on training portion
+  - Tests top K (default 5) Sharpe performers on held-out test portion
+  - Flags each result as 'in_sample' or 'out_of_sample'
+  - Reveals whether top training strategies hold up on unseen data
 
 Usage:
     python strategy_research.py
     python strategy_research.py --symbols BTC-USDT,ETH-USDT
-    python strategy_research.py --timeframes 1d,4h
-    python strategy_research.py --quick        (smaller parameter grid)
-    python strategy_research.py --top-n 20
+    python strategy_research.py --timeframes 1d,4h,1h
+    python strategy_research.py --quick          (fewer param combos)
+    python strategy_research.py --train-pct 0.7  (default)
+    python strategy_research.py --top-k 5        (default)
 
 Environment: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 """
@@ -49,63 +57,73 @@ from supabase import create_client, Client
 # CONFIG
 # ===============================================================================
 
-DEFAULT_SYMBOLS = [
-    "BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT", "XRP-USDT",
+ALL_SYMBOLS = [
+    "BTC-USDT", "ETH-USDT", "XRP-USDT", "SOL-USDT", "BNB-USDT",
     "ADA-USDT", "DOGE-USDT", "AVAX-USDT", "DOT-USDT", "LINK-USDT",
+    "UNI-USDT", "SHIB-USDT", "LTC-USDT", "BCH-USDT", "ATOM-USDT",
+    "ETC-USDT", "XLM-USDT", "FIL-USDT", "TRX-USDT", "NEAR-USDT",
+    "APT-USDT", "ARB-USDT", "OP-USDT", "SUI-USDT", "PEPE-USDT",
+    "INJ-USDT", "TIA-USDT", "POL-USDT", "SEI-USDT", "STRK-USDT",
 ]
-DEFAULT_TIMEFRAMES = ["1d", "4h"]
+DEFAULT_TIMEFRAMES = ["1d", "4h", "1h"]
 
-# Strategy parameter grids
+# ---------------------------------------------------------------------------
+# Parameter grids — moderately wide to find real edge without exploding combos
+# ---------------------------------------------------------------------------
+
 RSI_GRID = {
-    "period":        range(7, 22, 2),
-    "oversold":      range(20, 40, 5),
-    "overbought":    range(60, 81, 5),
-}
+    "period":        range(5, 26, 2),     # 11
+    "oversold":      range(20, 45, 5),    #  5  (20,25,30,35,40)
+    "overbought":    range(55, 86, 5),    #  7  (55,60,65,70,75,80,85)
+}  # 385 combos
 
 MACD_GRID = {
-    "fast":          range(6, 16, 2),
-    "slow":          range(20, 36, 3),
-    "signal":        range(5, 13, 2),
-}
+    "fast":          range(6, 22, 2),     #  8
+    "slow":          range(18, 42, 3),    #  8
+    "signal":        range(5, 15, 2),     #  5
+}  # 320 combos
 
 BB_GRID = {
-    "period":        range(15, 26, 2),
-    "std":           [1.5, 2.0, 2.5, 3.0],
-}
+    "period":        range(10, 32, 2),    # 11
+    "std":           [1.5, 2.0, 2.5, 3.0, 3.5],
+}  # 55 combos
 
 EMA_GRID = {
-    "fast":          range(5, 21, 3),
-    "slow":          range(25, 55, 5),
-}
+    "fast":          range(3, 25, 2),     # 11
+    "slow":          range(20, 60, 5),    #  8
+}  # 88 combos
 
 STOCH_RSI_GRID = {
-    "period":        range(7, 22, 2),
+    "period":        range(7, 22, 2),     #  8
     "smooth_k":      [3],
     "smooth_d":      [3],
     "oversold":      [15, 20, 25],
     "overbought":    [75, 80, 85],
-}
+}  # 72 combos
 
 KC_GRID = {
-    "period":        range(15, 26, 2),
-    "mult":          [1.5, 2.0, 2.5, 3.0],
-}
+    "period":        range(10, 32, 2),    # 11
+    "mult":          [1.5, 2.0, 2.5, 3.0, 3.5],
+}  # 55 combos
 
 RSI_ADX_GRID = {
-    "rsi_period":    [14],
-    "rsi_oversold":  [25, 30, 35],
-    "rsi_overbought": [65, 70, 75],
-    "adx_period":    [14],
-    "adx_threshold": [20, 25],
-}
+    "rsi_period":     [9, 14],
+    "rsi_oversold":   [20, 25, 30, 35],
+    "rsi_overbought": [65, 70, 75, 80],
+    "adx_period":     [9, 14],
+    "adx_threshold":  [20, 25, 30],
+}  # 192 combos
 
 RSI_VOL_GRID = {
-    "rsi_period":    [14],
-    "rsi_oversold":  [25, 30, 35],
-    "rsi_overbought": [65, 70, 75],
-    "vol_period":    [20],
-    "vol_mult":      [1.5, 2.0],
-}
+    "rsi_period":     [9, 14],
+    "rsi_oversold":   [20, 25, 30, 35],
+    "rsi_overbought": [65, 70, 75, 80],
+    "vol_period":     [15, 20, 25],
+    "vol_mult":       [1.2, 1.5, 2.0, 3.0],
+}  # 384 combos
+
+# Hard cap on combos per strategy to keep runtime sane
+MAX_COMBOS_PER_STRATEGY = 500
 
 
 # ===============================================================================
@@ -228,11 +246,10 @@ def _kc(high: pd.Series, low: pd.Series, close: pd.Series, period: int, mult: fl
 
 
 # ===============================================================================
-# SIGNAL GENERATORS ? each returns pd.Series in {-1, 0, 1}
+# SIGNAL GENERATORS — each returns pd.Series in {-1, 0, 1}
 # ===============================================================================
 
 def signal_rsi_reversion(df: pd.DataFrame, p: dict) -> pd.Series:
-    """RSI mean reversion: oversold ? long (1), overbought ? short (-1)."""
     rsi = _rsi(df["close"], p["period"])
     sig = pd.Series(0, index=df.index)
     sig[rsi < p["oversold"]] = 1
@@ -240,7 +257,6 @@ def signal_rsi_reversion(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig
 
 def signal_macd_crossover(df: pd.DataFrame, p: dict) -> pd.Series:
-    """MACD crossover: MACD crosses above signal ? long, below ? short."""
     m = _macd(df["close"], p["fast"], p["slow"], p["signal"])
     macd, sig = m["macd"], m["signal"]
     sig_series = pd.Series(0, index=df.index)
@@ -251,7 +267,6 @@ def signal_macd_crossover(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_bb_reversion(df: pd.DataFrame, p: dict) -> pd.Series:
-    """Bollinger Bands mean reversion: touch lower ? long, upper ? short."""
     b = _bb(df["close"], p["period"], p["std"])
     close = df["close"]
     sig_series = pd.Series(0, index=df.index)
@@ -260,7 +275,6 @@ def signal_bb_reversion(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_ema_crossover(df: pd.DataFrame, p: dict) -> pd.Series:
-    """EMA crossover trend: fast > slow ? long, fast < slow ? short."""
     fast = _ema(df["close"], p["fast"])
     slow = _ema(df["close"], p["slow"])
     sig_series = pd.Series(0, index=df.index)
@@ -269,11 +283,9 @@ def signal_ema_crossover(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_stoch_rsi(df: pd.DataFrame, p: dict) -> pd.Series:
-    """StochRSI: K crosses D below oversold ? long, above overbought ? short."""
     sd = _stoch_rsi(df["close"], p["period"], p["smooth_k"], p["smooth_d"])
     k, d = sd["k"], sd["d"]
     sig_series = pd.Series(0, index=df.index)
-    # Long: K below oversold and K crosses above D
     long_cond = (k < p["oversold"]) & (k.shift(1) <= d.shift(1)) & (k > d)
     short_cond = (k > p["overbought"]) & (k.shift(1) >= d.shift(1)) & (k < d)
     sig_series[long_cond] = 1
@@ -281,7 +293,6 @@ def signal_stoch_rsi(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_kc_breakout(df: pd.DataFrame, p: dict) -> pd.Series:
-    """Keltner Channel breakout: close > upper ? long, close < lower ? short."""
     kc = _kc(df["high"], df["low"], df["close"], p["period"], p["mult"])
     close = df["close"]
     sig_series = pd.Series(0, index=df.index)
@@ -290,16 +301,15 @@ def signal_kc_breakout(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_rsi_adx(df: pd.DataFrame, p: dict) -> pd.Series:
-    """RSI mean reversion filtered by ADX trend strength."""
     rsi = _rsi(df["close"], p["rsi_period"])
     adx = _adx(df["high"], df["low"], df["close"], p["adx_period"])
     sig_series = pd.Series(0, index=df.index)
-    # Long when oversold AND trend is weak (ADX low) ? mean reversion setup
+    # Mean reversion in low-trend regimes
     long_cond = (rsi < p["rsi_oversold"]) & (adx < p["adx_threshold"])
     short_cond = (rsi > p["rsi_overbought"]) & (adx < p["adx_threshold"])
     sig_series[long_cond] = 1
     sig_series[short_cond] = -1
-    # When ADX is high, follow the trend instead
+    # Trend-follow in high-trend regimes
     ema_fast = _ema(df["close"], 12)
     ema_slow = _ema(df["close"], 26)
     trend_long = (ema_fast > ema_slow) & (adx >= p["adx_threshold"])
@@ -309,7 +319,6 @@ def signal_rsi_adx(df: pd.DataFrame, p: dict) -> pd.Series:
     return sig_series
 
 def signal_rsi_vol(df: pd.DataFrame, p: dict) -> pd.Series:
-    """RSI extremes confirmed by volume spike."""
     rsi = _rsi(df["close"], p["rsi_period"])
     vr = _vol_ratio(df["close"], df["volume"], p["vol_period"])
     sig_series = pd.Series(0, index=df.index)
@@ -354,12 +363,11 @@ STRATEGIES = [
 class Trade:
     entry_time: Any
     exit_time: Any
-    side: str          # "long" or "short"
+    side: str
     entry_price: float
     exit_price: float
-    pnl_pct: float     # percentage return
+    pnl_pct: float
     bars_held: int
-
 
 @dataclass
 class BacktestResult:
@@ -375,9 +383,14 @@ class BacktestResult:
     trade_count: int
     avg_bars_held: float
     calmar_ratio: float
+    validation: str = "in_sample"       # "in_sample" | "out_of_sample"
     data_start_date: str | None = None
     data_end_date: str | None = None
     data_bar_count: int = 0
+    train_start_date: str | None = None
+    train_end_date: str | None = None
+    test_start_date: str | None = None
+    test_end_date: str | None = None
     trades: list[Trade] = field(default_factory=list)
 
 
@@ -386,41 +399,37 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
     Run a simple backtest given OHLCV data and a signal series in {-1, 0, 1}.
     
     Rules:
-    - Signal 1  ? enter/hold long
-    - Signal -1 ? enter/hold short
-    - Signal 0  ? flat (close any position)
+    - Signal  1 → enter/hold long
+    - Signal -1 → enter/hold short
+    - Signal  0 → flat (close any position)
     - Entry at next bar's open
     - Exit at next bar's open
-    - No leverage, no fees (for comparison; can be added later)
+    - No leverage, no fees
     """
     if df.empty or len(df) < 50:
         return None
 
-    # Align signal to data
     sig = signal.reindex(df.index).fillna(0).astype(int)
     close = df["close"]
     open_p = df["open"]
 
-    position: int = 0  # 0 flat, 1 long, -1 short
+    position: int = 0
     entry_price: float = 0.0
     entry_idx: int = 0
     trades: list[Trade] = []
-    equity_curve: list[float] = [10000.0]  # start at 10k
+    equity_curve: list[float] = [10000.0]
 
     for i in range(1, len(df)):
         sig_now = sig.iloc[i]
-        prev_sig = sig.iloc[i - 1]
+        position_was = position
 
         if position != 0:
-            # Check for exit: signal changes to opposite or flat
             if sig_now != position:
-                # Close at today's open (next bar after signal)
                 exit_p = float(open_p.iloc[i])
                 if position == 1:
                     pnl_pct = (exit_p - entry_price) / entry_price * 100
                 else:
                     pnl_pct = (entry_price - exit_p) / entry_price * 100
-
                 trades.append(Trade(
                     entry_time=df.index[entry_idx],
                     exit_time=df.index[i],
@@ -434,7 +443,6 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
                 position = 0
 
         if position == 0 and sig_now != 0:
-            # Enter new position at today's open
             position = int(sig_now)
             entry_price = float(open_p.iloc[i])
             entry_idx = i
@@ -460,24 +468,19 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
     if len(trades) < 2:
         return None
 
-    # --- Metrics ---
     eq = pd.Series(equity_curve)
     returns = eq.pct_change().dropna()
-
     total_return = (eq.iloc[-1] / eq.iloc[0] - 1) * 100
 
-    # Sharpe (annualized, 365 for crypto)
     if len(returns) > 1 and returns.std() > 0:
         sharpe = float(returns.mean() / returns.std() * np.sqrt(365))
     else:
         sharpe = 0.0
 
-    # Max drawdown
     peak = eq.expanding().max()
     dd = (eq - peak) / peak * 100
     max_dd = float(dd.min())
 
-    # Win rate & profit factor
     wins = [t for t in trades if t.pnl_pct > 0]
     losses = [t for t in trades if t.pnl_pct <= 0]
     win_rate = len(wins) / len(trades) * 100 if trades else 0
@@ -491,8 +494,8 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
     return BacktestResult(
         strategy_name="",
         params={},
-        symbol=df.attrs.get("symbol", "?"),
-        timeframe=df.attrs.get("timeframe", "?"),
+        symbol="?",
+        timeframe="?",
         total_return_pct=round(total_return, 2),
         sharpe_ratio=round(sharpe, 3),
         max_drawdown_pct=round(max_dd, 2),
@@ -509,7 +512,7 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
 
 
 # ===============================================================================
-# SWEEP
+# WALK-FORWARD SWEEP
 # ===============================================================================
 
 def run_sweep(
@@ -517,14 +520,32 @@ def run_sweep(
     strategy_def: StrategyDef,
     symbol: str,
     timeframe: str,
+    train_pct: float = 0.7,
+    top_k: int = 5,
     quick: bool = False,
 ) -> list[BacktestResult]:
-    """Run parameter sweep for a single strategy on a single dataset."""
-    results: list[BacktestResult] = []
-    grid = strategy_def.param_grid
+    """
+    Walk-forward parameter sweep:
+    1. Split data into train (first train_pct) and test (remaining)
+    2. Sweep all param combos on TRAIN data
+    3. Pick top K by Sharpe from train results
+    4. Test those K param sets on TEST data
+    5. Return all results with validation flag
 
+    Returns both training results (full sweep) and test results (top K only).
+    """
+    split_idx = int(len(df) * train_pct)
+    train_df = df.iloc[:split_idx].copy()
+    test_df = df.iloc[split_idx:].copy()
+
+    train_start = str(train_df.index[0].date())
+    train_end = str(train_df.index[-1].date())
+    test_start = str(test_df.index[0].date())
+    test_end = str(test_df.index[-1].date())
+
+    # Build param combos
+    grid = strategy_def.param_grid
     if quick:
-        # Smaller grid: take at most 3 values per param
         grid = {k: (v if not isinstance(v, range) else range(v.start, v.stop, max(1, (v.stop - v.start) // 3)))
                 for k, v in grid.items()}
         grid = {k: list(v)[:3] for k, v in grid.items()}
@@ -533,102 +554,168 @@ def run_sweep(
     param_values = list(grid.values())
     total_combos = math.prod(len(v) for v in param_values)
 
-    if total_combos > 500:
-        print(f"  Sweep: {total_combos} combos ? limiting to 500")
-        # Take first 500 combos
-        sample = list(itertools.product(*param_values))[:500]
+    if total_combos > MAX_COMBOS_PER_STRATEGY:
+        combos = list(itertools.product(*param_values))
+        # Systematic sampling: take evenly spaced combos
+        step = max(1, len(combos) // MAX_COMBOS_PER_STRATEGY)
+        combos = combos[::step][:MAX_COMBOS_PER_STRATEGY]
     else:
-        sample = list(itertools.product(*param_values))
+        combos = list(itertools.product(*param_values))
 
-    for combo in sample:
+    # --- Phase 1: Sweep all combos on TRAIN data ---
+    train_results: list[BacktestResult] = []
+    for combo in combos:
         params = dict(zip(param_names, combo))
         try:
-            sig = strategy_def.signal_fn(df, params)
+            sig = strategy_def.signal_fn(train_df, params)
         except Exception:
             continue
-
-        result = backtest(df, sig)
+        result = backtest(train_df, sig)
         if result is None:
             continue
-
         result.strategy_name = strategy_def.name
         result.params = params
         result.symbol = symbol
         result.timeframe = timeframe
-        results.append(result)
+        result.validation = "in_sample"
+        result.train_start_date = train_start
+        result.train_end_date = train_end
+        result.test_start_date = test_start
+        result.test_end_date = test_end
+        train_results.append(result)
 
-    return results
+    # --- Phase 2: Test top K params on TEST data ---
+    train_results.sort(key=lambda r: r.sharpe_ratio, reverse=True)
+    top_train = train_results[:min(top_k, len(train_results))]
+
+    test_results: list[BacktestResult] = []
+    for tr in top_train:
+        try:
+            sig = strategy_def.signal_fn(test_df, tr.params)
+        except Exception:
+            continue
+        result = backtest(test_df, sig)
+        if result is None:
+            continue
+        result.strategy_name = strategy_def.name
+        result.params = tr.params
+        result.symbol = symbol
+        result.timeframe = timeframe
+        result.validation = "out_of_sample"
+        result.train_start_date = train_start
+        result.train_end_date = train_end
+        result.test_start_date = test_start
+        result.test_end_date = test_end
+        test_results.append(result)
+
+    return train_results + test_results
 
 
 # ===============================================================================
 # REPORTING
 # ===============================================================================
 
+def _safe(text: str) -> str:
+    """Replace non-ASCII chars with ASCII equivalents for Windows console."""
+    return text.replace("\u2192", "->").replace("\u2265", ">=")
+
+
 def print_results(results: list[BacktestResult], top_n: int = 15):
-    """Print ranked results grouped by strategy type."""
+    """Print ranked results, showing OOS performance for top IS strategies."""
     if not results:
         print("\n  No valid results found.")
         return
 
-    # Sort by Sharpe
-    sorted_results = sorted(results, key=lambda r: r.sharpe_ratio, reverse=True)
+    train_results = [r for r in results if r.validation == "in_sample"]
+    test_results = [r for r in results if r.validation == "out_of_sample"]
 
-    print(f"\n{'='*90}")
-    print(f" TOP {top_n} STRATEGIES (ranked by Sharpe ratio)")
-    print(f"{'='*90}")
+    # --- Top N by in-sample Sharpe, with their corresponding OOS result ---
+    train_sorted = sorted(train_results, key=lambda r: r.sharpe_ratio, reverse=True)
+    test_lookup = {(r.strategy_name, r.symbol, r.timeframe, str(sorted(r.params.items()))): r
+                   for r in test_results}
 
-    header = f"{'#':>3} {'Type':<18} {'Params':<36} {'Symbol':<12} {'TF':<4} {'Ret%':>7} {'Sharpe':>7} {'DD%':>7} {'WR%':>6} {'PF':>6} {'Trades':>6}"
+    print(f"\n{'='*110}")
+    print(f" TOP {top_n} STRATEGIES (ranked by in-sample Sharpe, with out-of-sample)")
+    print(f"{'='*110}")
+    header = (f"{'#':>3} {'Type':<18} {'Params':<30} {'Symbol':<10} {'TF':<3} "
+              f"{'IS_Ret%':>7} {'IS_Sharpe':>8} {'OOS_Ret%':>8} {'OOS_Sharpe':>8} {'DD%':>6} {'Trades':>6}")
     print(header)
-    print("-" * 90)
+    print("-" * 110)
 
-    for i, r in enumerate(sorted_results[:top_n]):
+    for i, r in enumerate(train_sorted[:top_n]):
+        # Find matching OOS result
+        key = (r.strategy_name, r.symbol, r.timeframe, str(sorted(r.params.items())))
+        oos = test_lookup.get(key)
+        oos_ret = f"{oos.total_return_pct:>6.1f}%" if oos else "   N/A"
+        oos_sharpe = f"{oos.sharpe_ratio:>7.3f}" if oos else "    N/A"
+
         param_str = ",".join(f"{k}={v}" for k, v in sorted(r.params.items()))
-        if len(param_str) > 35:
-            param_str = param_str[:32] + "..."
+        if len(param_str) > 29:
+            param_str = param_str[:26] + "..."
+
         print(
-            f"{i+1:>3} {r.strategy_name:<18} {param_str:<36} {r.symbol:<12} {r.timeframe:<4} "
-            f"{r.total_return_pct:>6.1f}% {r.sharpe_ratio:>7.3f} {r.max_drawdown_pct:>6.1f}% "
-            f"{r.win_rate:>5.1f}% {r.profit_factor:>6.2f} {r.trade_count:>6}"
+            f"{i+1:>3} {r.strategy_name:<18} {param_str:<30} {r.symbol:<10} {r.timeframe:<3} "
+            f"{r.total_return_pct:>6.1f}% {r.sharpe_ratio:>8.3f} {oos_ret:>8} {oos_sharpe:>8} "
+            f"{r.max_drawdown_pct:>5.1f}% {r.trade_count:>6}"
         )
 
-    # --- Best per strategy type ---
-    print(f"\n{'='*90}")
-    print(f" BEST PER STRATEGY TYPE")
-    print(f"{'='*90}")
+    # --- Best per strategy type (show IS → OOS gap) ---
+    print(f"\n{'='*110}")
+    print(" BEST PER STRATEGY TYPE  (IS Sharpe -> OOS Sharpe)")
+    print(f"{'='*110}")
 
     by_type: dict[str, list[BacktestResult]] = defaultdict(list)
-    for r in results:
+    for r in train_results:
         by_type[r.strategy_name].append(r)
 
     for sname, sresults in sorted(by_type.items()):
         best = max(sresults, key=lambda r: r.sharpe_ratio)
-        print(f"  {sname:<18} Sharpe={best.sharpe_ratio:.3f}  Ret={best.total_return_pct:.1f}%  "
-              f"DD={best.max_drawdown_pct:.1f}%  params=({','.join(f'{k}={v}' for k,v in sorted(best.params.items()))})")
+        key = (best.strategy_name, best.symbol, best.timeframe, str(sorted(best.params.items())))
+        oos = test_lookup.get(key)
+        oos_info = f" -> OOS Sharpe={oos.sharpe_ratio:.3f}  Ret={oos.total_return_pct:.1f}%" if oos else " -> no OOS"
+        print(f"  {sname:<18} IS Sharpe={best.sharpe_ratio:.3f}  Ret={best.total_return_pct:.1f}%  "
+              f"Params=({','.join(f'{k}={v}' for k,v in sorted(best.params.items()))}){oos_info}")
 
-    # --- All-time best ---
-    best_overall = sorted_results[0]
-    print(f"\n{'='*90}")
-    print(f" BEST OVERALL: {best_overall.strategy_name}")
-    print(f"   Symbol:     {best_overall.symbol} [{best_overall.timeframe}]")
-    print(f"   Params:     {best_overall.params}")
-    print(f"   Return:     {best_overall.total_return_pct:.1f}%")
-    print(f"   Sharpe:     {best_overall.sharpe_ratio:.3f}")
-    print(f"   Max DD:     {best_overall.max_drawdown_pct:.1f}%")
-    print(f"   Win Rate:   {best_overall.win_rate:.1f}%")
-    print(f"   Profit Fac: {best_overall.profit_factor:.2f}")
-    print(f"   Trades:     {best_overall.trade_count}")
-    print(f"   Avg Hold:   {best_overall.avg_bars_held:.0f} bars")
-    print(f"{'='*90}\n")
+    # --- OOS summary ---
+    if test_results:
+        valid_oos = [r for r in test_results if r.trade_count >= 10]
+        if valid_oos:
+            best_oos = max(valid_oos, key=lambda r: r.sharpe_ratio)
+            print(f"\n{'='*110}")
+            print(" BEST OUT-OF-SAMPLE (>=10 trades)")
+            print(f"{'='*110}")
+            print(f"  {best_oos.strategy_name:<18} Sharpe={best_oos.sharpe_ratio:.3f}  "
+                  f"Ret={best_oos.total_return_pct:.1f}%  DD={best_oos.max_drawdown_pct:.1f}%  "
+                  f"Trades={best_oos.trade_count}  {best_oos.symbol} [{best_oos.timeframe}]")
+            print(f"  Params: {best_oos.params}")
+
+    # --- All-time best IS ---
+    best_is = train_sorted[0]
+    print(f"\n{'='*110}")
+    print(f" BEST IN-SAMPLE OVERALL")
+    print(f"{'='*110}")
+    print(f"  {best_is.strategy_name:<18} Sharpe={best_is.sharpe_ratio:.3f}  "
+          f"Ret={best_is.total_return_pct:.1f}%  DD={best_is.max_drawdown_pct:.1f}%  "
+          f"Trades={best_is.trade_count}  {best_is.symbol} [{best_is.timeframe}]")
+    print(f"  Params: {best_is.params}")
+    print(f"  Train: {best_is.train_start_date} -> {best_is.train_end_date} ({best_is.data_bar_count} bars)")
+    key = (best_is.strategy_name, best_is.symbol, best_is.timeframe, str(sorted(best_is.params.items())))
+    oos = test_lookup.get(key)
+    if oos:
+        print(f"  OOS:   Sharpe={oos.sharpe_ratio:.3f}  Ret={oos.total_return_pct:.1f}%  "
+              f"DD={oos.max_drawdown_pct:.1f}%  Trades={oos.trade_count}")
+    print(f"{'='*110}\n")
 
 
 def export_results(results: list[BacktestResult], filepath: str = "strategy_results.csv"):
     """Export all results to CSV for further analysis."""
     rows = []
     for r in results:
-        rows.append({
+        row = {
             "strategy": r.strategy_name,
             "symbol": r.symbol,
             "timeframe": r.timeframe,
+            "validation": r.validation,
             **r.params,
             "return_pct": r.total_return_pct,
             "sharpe": r.sharpe_ratio,
@@ -638,20 +725,33 @@ def export_results(results: list[BacktestResult], filepath: str = "strategy_resu
             "trade_count": r.trade_count,
             "avg_bars_held": r.avg_bars_held,
             "calmar": r.calmar_ratio,
-        })
-    pd.DataFrame(rows).to_csv(filepath, index=False)
-    print(f"  Exported {len(rows)} results to {filepath}")
+        }
+        # Only add train/test dates if populated
+        if r.train_start_date:
+            row["train_start"] = r.train_start_date
+            row["train_end"] = r.train_end_date
+            row["test_start"] = r.test_start_date
+            row["test_end"] = r.test_end_date
+        rows.append(row)
+    if rows:
+        pd.DataFrame(rows).to_csv(filepath, index=False)
+        print(f"  Exported {len(rows)} results to {filepath}")
 
 
 def export_results_to_supabase(results: list[BacktestResult], supabase: Client, run_id: str):
-    """Write all strategy results to Supabase strategy_results table."""
+    """Write all strategy results to Supabase strategy_results table.
+
+    Attempts to write walk-forward columns (validation, train/test dates).
+    If those columns don't exist yet (V6 migration not applied), falls back
+    gracefully to the core columns only.
+    """
     if not results:
         return
 
-    # Batch insert in chunks of 200
+    # Build rows with optional walk-forward columns
     rows = []
     for r in results:
-        rows.append({
+        row = {
             "run_id": run_id,
             "strategy_name": r.strategy_name,
             "symbol": r.symbol,
@@ -668,17 +768,48 @@ def export_results_to_supabase(results: list[BacktestResult], supabase: Client, 
             "data_start_date": r.data_start_date,
             "data_end_date": r.data_end_date,
             "data_bar_count": r.data_bar_count,
-        })
+            # Walk-forward columns (may not exist yet — fallback handles)
+            "validation": r.validation,
+            "train_start_date": r.train_start_date,
+            "train_end_date": r.train_end_date,
+            "test_start_date": r.test_start_date,
+            "test_end_date": r.test_end_date,
+        }
+        rows.append(row)
 
+    # Try with walk-forward columns first, then fall back
     chunk_size = 200
-    for i in range(0, len(rows), chunk_size):
-        chunk = rows[i:i + chunk_size]
+    inserted = False
+    for attempt in range(2):
         try:
-            supabase.table("strategy_results").insert(chunk).execute()
+            for i in range(0, len(rows), chunk_size):
+                chunk = rows[i:i + chunk_size]
+                supabase.table("strategy_results").insert(chunk).execute()
+            inserted = True
+            break
         except Exception as e:
-            print(f"  [WARN] Supabase insert failed (chunk {i//chunk_size}): {e}")
+            err_str = str(e).lower()
+            if attempt == 0 and ("validation" in err_str or "train_start" in err_str or
+                                 "does not exist" in err_str or "column" in err_str):
+                # Walk-forward columns don't exist yet — strip them and retry
+                print("  [INFO] Walk-forward columns not in schema - falling back to core columns")
+                for row in rows:
+                    row.pop("validation", None)
+                    row.pop("train_start_date", None)
+                    row.pop("train_end_date", None)
+                    row.pop("test_start_date", None)
+                    row.pop("test_end_date", None)
+                # Encode validation type in params JSONB instead
+                for r, row in zip(results, rows):
+                    if r.validation == "out_of_sample":
+                        row["params"]["_validation"] = "out_of_sample"
+                continue
+            else:
+                print(f"  [WARN] Supabase insert failed: {e}")
+                break
 
-    print(f"  Stored {len(rows)} results in Supabase (run_id={run_id[:8]}...)")
+    if inserted:
+        print(f"  Stored {len(rows)} results in Supabase (run_id={run_id[:8]}...)")
 
 
 # ===============================================================================
@@ -686,34 +817,40 @@ def export_results_to_supabase(results: list[BacktestResult], supabase: Client, 
 # ===============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Strategy Research Engine")
-    parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS),
-                        help="Comma-separated symbols (default: all)")
+    parser = argparse.ArgumentParser(description="Strategy Research Engine v2.0")
+    parser.add_argument("--symbols", default=",".join(ALL_SYMBOLS),
+                        help="Comma-separated symbols (default: all 30)")
     parser.add_argument("--timeframes", default=",".join(DEFAULT_TIMEFRAMES),
-                        help="Comma-separated timeframes (default: 1d,4h)")
+                        help="Comma-separated timeframes (default: 1d,4h,1h)")
     parser.add_argument("--quick", action="store_true",
                         help="Smaller parameter grid for faster runs")
     parser.add_argument("--top-n", type=int, default=15,
                         help="Number of top strategies to show (default: 15)")
+    parser.add_argument("--train-pct", type=float, default=0.7,
+                        help="Fraction of data for training (default: 0.7)")
+    parser.add_argument("--top-k", type=int, default=5,
+                        help="Number of top params to test out-of-sample (default: 5)")
     parser.add_argument("--export", type=str, default="strategy_results.csv",
-                        help="Export results CSV path (default: strategy_results.csv)")
+                        help="Export results CSV path")
     args = parser.parse_args()
 
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
 
     print("=" * 60)
-    print("  STRATEGY RESEARCH ENGINE  v1.0")
+    print("  STRATEGY RESEARCH ENGINE  v2.0")
+    print("  Walk-Forward Validation")
     print("=" * 60)
-    print(f"\n  Symbols:    {', '.join(symbols)}")
+    print(f"\n  Symbols:    {len(symbols)} ({', '.join(symbols[:5])}...)")
     print(f"  Timeframes: {', '.join(timeframes)}")
     print(f"  Strategies: {len(STRATEGIES)}")
     print(f"  Quick mode: {'ON' if args.quick else 'OFF'}")
+    print(f"  Train/Test: {int(args.train_pct*100)}/{int((1-args.train_pct)*100)} split, top-k={args.top_k}")
     print()
 
     supabase = _supabase()
 
-    # Create research run record
+    # Create research run
     run_id = str(uuid.uuid4())
     try:
         supabase.table("research_runs").insert({
@@ -730,6 +867,7 @@ def main():
     t_start = time.time()
     all_results: list[BacktestResult] = []
     total_sweeps = 0
+    skipped_symbols = []
 
     for symbol in symbols:
         for timeframe in timeframes:
@@ -738,22 +876,37 @@ def main():
 
             df = load_ohlcv(supabase, symbol, timeframe)
             if df is None:
-                print(f"  SKIP - no data (need >= 50 bars)")
+                print(f"  SKIP - no data")
+                skipped_symbols.append((symbol, timeframe))
                 continue
 
-            # Store metadata
-            df.attrs["symbol"] = symbol
-            df.attrs["timeframe"] = timeframe
             print(f"  Bars: {len(df)} ({df.index[0].date()} - {df.index[-1].date()})")
+            min_bars = max(200, int(100 / args.train_pct))  # at least 100 in test set
+            if len(df) < min_bars:
+                print(f"  SKIP - too few bars for train/test split (need {min_bars})")
+                skipped_symbols.append((symbol, timeframe))
+                continue
 
             for strategy_def in STRATEGIES:
-                results = run_sweep(df, strategy_def, symbol, timeframe, quick=args.quick)
+                results = run_sweep(
+                    df, strategy_def, symbol, timeframe,
+                    train_pct=args.train_pct, top_k=args.top_k, quick=args.quick,
+                )
                 all_results.extend(results)
                 total_sweeps += len(results)
+
                 if results:
-                    best = max(results, key=lambda r: r.sharpe_ratio)
-                    print(f"  {strategy_def.name:<18} {len(results):>4} variants  "
-                          f"best Sharpe={best.sharpe_ratio:.3f}  Ret={best.total_return_pct:.1f}%")
+                    train_only = [r for r in results if r.validation == "in_sample"]
+                    test_only = [r for r in results if r.validation == "out_of_sample"]
+                    best_train = max(train_only, key=lambda r: r.sharpe_ratio) if train_only else None
+                    best_test = max(test_only, key=lambda r: r.sharpe_ratio) if test_only else None
+
+                    line = f"  {strategy_def.name:<18} {len(train_only):>4} IS variants"
+                    if best_train:
+                        line += f"  best IS Sharpe={best_train.sharpe_ratio:.3f}"
+                    if best_test:
+                        line += f"  OOS Sharpe={best_test.sharpe_ratio:.3f}  Ret={best_test.total_return_pct:.1f}%"
+                    print(line)
 
             elapsed = time.time() - t0
             print(f"  Done in {elapsed:.1f}s\n")
@@ -761,17 +914,20 @@ def main():
     duration = time.time() - t_start
 
     # Final report
-    print(f"\n{'='*90}")
-    print(f" SWEEP COMPLETE - {total_sweeps} strategy variants tested across "
+    print(f"\n{'='*110}")
+    print(f" SWEEP COMPLETE - {total_sweeps} variants across "
           f"{len(symbols)} symbols x {len(timeframes)} timeframes")
-    print(f"{'='*90}")
+    print(f"{'='*110}")
+    if skipped_symbols:
+        print(f"  Skipped {len(skipped_symbols)} symbol/timeframe combos (no data):")
+        for s, tf in skipped_symbols:
+            print(f"    {s} [{tf}]")
 
     if all_results:
         print_results(all_results, top_n=args.top_n)
         export_results(all_results, args.export)
         export_results_to_supabase(all_results, supabase, run_id)
 
-        # Update research run as completed
         try:
             supabase.table("research_runs").update({
                 "total_variants": total_sweeps,
@@ -781,7 +937,7 @@ def main():
         except Exception as e:
             print(f"  [WARN] Could not update research run: {e}")
     else:
-        print("\n  No valid results. Check data availability and Supabase connection.\n")
+        print("\n  No valid results. Check data availability.\n")
         try:
             supabase.table("research_runs").update({
                 "status": "failed",
@@ -790,6 +946,8 @@ def main():
             }).eq("run_id", run_id).execute()
         except Exception:
             pass
+
+    print(f"\n  Total time: {duration:.1f}s")
 
 
 if __name__ == "__main__":
