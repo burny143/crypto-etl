@@ -1266,45 +1266,40 @@
             countEl.textContent = '';
 
             try {
+                // The `validation` column (V6 migration) may not exist in Supabase yet.
+                // The Python script stores _validation inside params JSONB as a fallback.
+                // Query without column filter and handle OOS/IS in JS via params._validation.
                 const { data, error } = await supabaseClient
                     .from('strategy_results')
-                    .select('strategy_name, symbol, timeframe, params, sharpe_ratio, total_return_pct, max_drawdown_pct, win_rate, profit_factor, trade_count, validation')
+                    .select('strategy_name, symbol, timeframe, params, sharpe_ratio, total_return_pct, max_drawdown_pct, win_rate, profit_factor, trade_count')
                     .eq('symbol', currentSymbol)
                     .eq('timeframe', currentTimeframe)
-                    .eq('validation', 'out_of_sample')
-                    .gte('trade_count', 10)
+                    .gte('trade_count', 5)
                     .order('sharpe_ratio', { ascending: false })
-                    .limit(15);
+                    .limit(20);
 
                 if (error) throw error;
-
-                // If no OOS results with >=10 trades, fall back to in-sample
-                let results = data || [];
-                if (results.length === 0) {
-                    const { data: isData } = await supabaseClient
-                        .from('strategy_results')
-                        .select('strategy_name, symbol, timeframe, params, sharpe_ratio, total_return_pct, max_drawdown_pct, win_rate, profit_factor, trade_count, validation')
-                        .eq('symbol', currentSymbol)
-                        .eq('timeframe', currentTimeframe)
-                        .eq('validation', 'in_sample')
-                        .gte('trade_count', 10)
-                        .order('sharpe_ratio', { ascending: false })
-                        .limit(10);
-                    results = (isData || []).map(r => ({...r, _fallback: true}));
-                }
-
-                if (!results || results.length === 0) {
+                if (!data || data.length === 0) {
                     feed.innerHTML = '<div class="strat-loading">No strategies found for this pair.</div>';
                     countEl.textContent = '';
                     return;
                 }
 
+                // Separate OOS and IS results
+                const oos = data.filter(r => r.params && r.params._validation === 'out_of_sample').slice(0, 10);
+                const isOnly = data.filter(r => !r.params || r.params._validation !== 'out_of_sample').slice(0, 5);
+                let results = oos.length > 0 ? oos : isOnly.map(r => ({...r, _fallback: true}));
+                if (oos.length > 0 && isOnly.length > 0) {
+                    // Label remaining IS entries as fallback
+                    results = [...oos, ...isOnly.map(r => ({...r, _fallback: true}))];
+                }
+
                 countEl.textContent = `${results.length} results`;
                 feed.innerHTML = results.map((r, idx) => {
-                    const paramStr = Object.entries(r.params || {}).map(([k,v]) => `${k}=${v}`).join(', ');
+                    const paramStr = Object.entries(r.params || {}).filter(([k]) => k !== '_validation').map(([k,v]) => `${k}=${v}`).join(', ');
                     const shp = r.sharpe_ratio || 0;
                     const shpCls = shp >= 5 ? 'good' : shp >= 1 ? 'ok' : 'bad';
-                    const label = r._fallback ? '(IS)' : '(OOS)';
+                    const label = r.params && r.params._validation === 'out_of_sample' ? '(OOS)' : r._fallback ? '(IS)' : '' ;
                     const encoded = encodeURIComponent(JSON.stringify(r.params));
                     return `
                         <div class="strat-item" data-idx="${idx}" data-strategy="${r.strategy_name}"
@@ -1318,7 +1313,7 @@
                                 <span>DD: ${(r.max_drawdown_pct || 0).toFixed(1)}%</span>
                                 <span>WR: ${(r.win_rate || 0).toFixed(0)}%</span>
                                 <span>Trades: ${r.trade_count || 0}</span>
-                                <span class="strat-oos">${label}</span>
+                                ${label ? `<span class="strat-oos">${label}</span>` : ''}
                             </div>
                             <div class="strat-params">${paramStr}</div>
                         </div>
