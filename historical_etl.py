@@ -237,9 +237,11 @@ def fetch_symbol_data(
     timeframe: str,
     config: dict,
 ) -> pd.DataFrame:
-    """Fetch OHLCV for one symbol/timeframe, resample if configured."""
+    """Fetch OHLCV for one symbol/timeframe, resample if configured.
+    Paginates through CCXT fetch_ohlcv to get full history.
+    """
     since_days = config["since_days_ago"]
-    since = (datetime.now(timezone.utc) - timedelta(days=since_days)).timestamp() * 1000
+    since = int((datetime.now(timezone.utc) - timedelta(days=since_days)).timestamp() * 1000)
 
     print(
         f"  Downloading {symbol} [{timeframe}] "
@@ -247,20 +249,32 @@ def fetch_symbol_data(
     )
 
     try:
-        raw = exchange.fetch_ohlcv(symbol, timeframe=config["ccxt_tf"], since=int(since))
+        limit = 200  # CCXT max per page (OKX supports up to 300)
+        all_candles = []
+        while True:
+            raw = exchange.fetch_ohlcv(symbol, timeframe=config["ccxt_tf"], since=since, limit=limit)
+            if not raw or len(raw) == 0:
+                break
+            all_candles.extend(raw)
+            if len(raw) < limit:
+                break
+            # Advance since past the last candle timestamp
+            since = raw[-1][0] + 1
+            time.sleep(0.2)
     except Exception as exc:
         print(f"  WARNING: fetch failed for {symbol} [{timeframe}]: {exc}")
         return pd.DataFrame()
 
-    if not raw or len(raw) < 2:
-        print(f"  WARNING: too few rows ({len(raw or [])}) for {symbol} [{timeframe}]")
+    if not all_candles or len(all_candles) < 2:
+        print(f"  WARNING: too few rows ({len(all_candles or [])}) for {symbol} [{timeframe}]")
         return pd.DataFrame()
 
-    df = ohlcv_to_df(raw, symbol, timeframe)
+    print(f"  Fetched {len(all_candles)} raw candles")
+
+    df = ohlcv_to_df(all_candles, symbol, timeframe)
 
     # Resample if needed (e.g. 1h → 4h)
     if config["resample"]:
-        # Reindex symbol/timeframe since resample drops non-OHLCV columns
         df_resampled = resample_ohlcv(df[["open", "high", "low", "close", "volume"]], config["resample"])
         df_resampled["symbol"] = symbol
         df_resampled["timeframe"] = timeframe
