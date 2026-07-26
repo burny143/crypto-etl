@@ -1,0 +1,31 @@
+name: Weekly Strategy Research
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # 06:00 UTC every Monday
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install pandas numpy supabase
+
+      - name: Run Strategy Research
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python strategy_research.py --export strategy_results.csv
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-results
+          path: strategy_results.csv

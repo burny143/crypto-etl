@@ -51,7 +51,7 @@
         
         /* Watchlist Left Panel */
         .sidebar { width: 300px; background: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-        .sidebar.right { border-right: none; border-left: 1px solid var(--border); }
+        .sidebar.right { border-right: none; border-left: 1px solid var(--border); overflow-y: auto; }
         .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; color: #fff; }
         
         .watchlist { overflow-y: auto; flex: 1; }
@@ -117,6 +117,29 @@
         .r-badge.bearish { background: rgba(242, 54, 69, 0.2); color: var(--down); }
         .r-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
         .r-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+        /* Paper Trading */
+        .trade-panel { padding: 8px 12px; }
+        .trade-form { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+        .trade-row { display: flex; gap: 6px; align-items: center; }
+        .trade-row input { background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 12px; }
+        .trade-row select { background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 12px; }
+        .trade-btn { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
+        .trade-btn:hover { opacity: 0.85; }
+        .pos-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 4px; font-size: 11px; }
+        .pos-item .pos-pnl { font-weight: 600; }
+        .pos-item .pos-pnl.positive { color: var(--up); }
+        .pos-item .pos-pnl.negative { color: var(--down); }
+        .pos-item .close-btn { background: var(--down); color: #fff; border: none; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer; }
+        .order-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 10px; border-bottom: 1px solid var(--border); }
+        .order-item:last-child { border-bottom: none; }
+        .order-item .o-side { font-weight: 600; }
+        .order-item .o-side.long { color: var(--up); }
+        .order-item .o-side.short { color: var(--down); }
+        .order-item .o-status { font-size: 9px; padding: 1px 4px; border-radius: 3px; }
+        .order-item .o-status.filled { background: rgba(8,153,129,0.15); color: var(--up); }
+        .order-item .o-status.pending { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .order-item .o-status.cancelled { background: rgba(242,54,69,0.15); color: var(--down); }
     </style>
 </head>
 <body>
@@ -201,6 +224,37 @@
             </div>
             <div class="research-feed" id="researchFeed">
                 <div style="text-align:center; color: var(--text-muted); font-size: 13px; margin-top: 20px;">Loading insights...</div>
+            </div>
+
+            <!-- Paper Trading -->
+            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+                <span>Paper Trading</span>
+                <span id="accountEquity" style="font-size:12px;color:var(--text-muted)">$10,000</span>
+            </div>
+            <div class="trade-panel" id="tradePanel">
+                <div class="trade-form">
+                    <div class="trade-row">
+                        <input type="number" id="tradeQty" value="0.01" min="0.0001" step="0.001" style="flex:1;">
+                        <select id="tradeSide" style="flex:0 0 80px;">
+                            <option value="long" style="color:var(--up);">Long</option>
+                            <option value="short" style="color:var(--down);">Short</option>
+                        </select>
+                        <button class="trade-btn" onclick="placeOrder()">Trade</button>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">
+                        <span id="tradePriceLabel">Price: –</span>
+                    </div>
+                </div>
+
+                <div id="positionsContainer" style="margin-top:8px;">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">Positions</div>
+                    <div id="positionsList" style="font-size:11px;color:var(--text-muted);text-align:center;padding:8px;">No open positions.</div>
+                </div>
+
+                <div id="ordersContainer" style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">Recent Orders</div>
+                    <div id="ordersList" style="font-size:10px;color:var(--text-muted);text-align:center;padding:8px;">No orders yet.</div>
+                </div>
             </div>
         </aside>
     </div>
@@ -620,6 +674,15 @@
             });
         }
 
+        // Set pane stretch factors so price/volume pane gets ~75% height, oscillator pane ~25%
+        function setOscPaneLayout() {
+            const panes = chart.panes();
+            if (panes.length > 1) {
+                panes[0].setStretchFactor(3);
+                panes[1].setStretchFactor(1);
+            }
+        }
+
         // ── Toggle indicator on/off via local computation ──
         async function toggleIndicator(name, enabled, force) {
             const getCb = () => document.querySelector(`.ind-cb[value="${name}"]`);
@@ -699,18 +762,12 @@
                             lastValueVisible: false, priceLineVisible: false,
                         };
                         if (isOsc) opts.priceScaleId = 'osc-' + name;
-                        const s = chart.addSeries(LightweightCharts.LineSeries, opts);
+                        const s = chart.addSeries(LightweightCharts.LineSeries, opts, isOsc ? 1 : undefined);
                         subSeries.push(s);
                         const data = (result[sk] || []).filter(p => p.value != null);
                         if (data.length > 0) s.setData(data);
                     });
-                    // Configure oscillator scale margins on the first sub-series
-                    if (isOsc && subSeries.length > 0) {
-                        subSeries[0].priceScale().applyOptions({
-                            scaleMargins: { top: 0.75, bottom: 0 },
-                            visible: false,
-                        });
-                    }
+                    if (isOsc) setOscPaneLayout();
                     activeIndicators.set(seriesKey, { series: subSeries, isMulti: true });
                 } else {
                     const opts = {
@@ -718,16 +775,10 @@
                         lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
                     };
                     if (def && def.scale === 'oscillator') opts.priceScaleId = 'osc-' + name;
-                    const series = chart.addSeries(LightweightCharts.LineSeries, opts);
+                    const series = chart.addSeries(LightweightCharts.LineSeries, opts, (def && def.scale === 'oscillator') ? 1 : undefined);
                     const data = result.filter(p => p.value != null);
                     if (data.length > 0) series.setData(data);
-                    // Configure oscillator scale margins
-                    if (def && def.scale === 'oscillator') {
-                        series.priceScale().applyOptions({
-                            scaleMargins: { top: 0.75, bottom: 0 },
-                            visible: false,
-                        });
-                    }
+                    if (def && def.scale === 'oscillator') setOscPaneLayout();
                     activeIndicators.set(seriesKey, { series, isMulti: false });
                 }
             } else {
@@ -829,6 +880,7 @@
             // Also update #headerChange
             document.getElementById('headerChange').innerText = `${pct >= 0 ? '+' : ''}${pct}%`;
             document.getElementById('headerChange').className = cls;
+            updateTradePrice();
         }
 
         document.getElementById('pairSelect').addEventListener('change', (e) => {
@@ -1202,18 +1254,224 @@
             `;
             feed.innerHTML = card + feed.innerHTML;
 
-            // Try to write to Supabase (anon key — requires INSERT RLS policy)
+            // Try to write to Supabase (INSERT is allowed by V3 RLS policy for anon)
             try {
                 await supabaseClient.from('crypto_research').insert(entry);
             } catch(e) {
-                console.warn('Could not save research to Supabase (RLS may block INSERT for anon key):', e);
+                console.warn('Could not save research to Supabase:', e);
             }
 
             // Background refresh from DB (may replace our card if insert succeeded)
             loadResearch();
         }
 
-        // ── Helpers ──
+        // ── Paper Trading ──
+        let tradeCash = 10000;
+
+        async function placeOrder() {
+            const qty = parseFloat(document.getElementById('tradeQty').value);
+            if (!qty || qty <= 0) { alert('Enter a valid quantity.'); return; }
+            const side = document.getElementById('tradeSide').value;
+            const price = getCurrentPrice();
+            if (!price) { alert('No price data available.'); return; }
+
+            const order = {
+                symbol: currentSymbol,
+                side,
+                order_type: 'market',
+                quantity: qty,
+                price,
+                status: 'filled',
+                filled_at: new Date().toISOString(),
+                opened_at: new Date().toISOString()
+            };
+
+            try {
+                // Insert order
+                const { error: orderErr } = await supabaseClient.from('paper_orders').insert(order);
+                if (orderErr) { console.error('Order insert error:', orderErr); alert('Failed to place order.'); return; }
+
+                // Upsert position: fetch existing, then merge
+                const { data: existing } = await supabaseClient
+                    .from('paper_positions')
+                    .select('*')
+                    .eq('symbol', currentSymbol)
+                    .eq('side', side)
+                    .limit(1);
+
+                if (existing && existing.length > 0) {
+                    const pos = existing[0];
+                    const totalQty = pos.quantity + qty;
+                    const avgPrice = ((pos.entry_price * pos.quantity) + (price * qty)) / totalQty;
+                    const { error: updErr } = await supabaseClient
+                        .from('paper_positions')
+                        .update({
+                            quantity: totalQty,
+                            entry_price: avgPrice,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', pos.id);
+                    if (updErr) console.error('Position update error:', updErr);
+                } else {
+                    const { error: insErr } = await supabaseClient
+                        .from('paper_positions')
+                        .insert({
+                            symbol: currentSymbol,
+                            side,
+                            quantity: qty,
+                            entry_price: price,
+                            current_price: price,
+                            unrealized_pnl: 0,
+                            opened_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        });
+                    if (insErr) console.error('Position insert error:', insErr);
+                }
+
+                refreshTradingUI();
+            } catch(e) {
+                console.error('Place order error:', e);
+                alert('Order failed. See console.');
+            }
+        }
+
+        async function closePosition(id) {
+            try {
+                const { data: pos, error: fetchErr } = await supabaseClient
+                    .from('paper_positions')
+                    .select('*')
+                    .eq('id', id)
+                    .limit(1);
+                if (fetchErr || !pos || pos.length === 0) return;
+
+                const p = pos[0];
+                const closePrice = getCurrentPrice() || p.current_price || p.entry_price;
+                const realizedPnl = p.side === 'long'
+                    ? (closePrice - p.entry_price) * p.quantity
+                    : (p.entry_price - closePrice) * p.quantity;
+
+                // Record closing order
+                await supabaseClient.from('paper_orders').insert({
+                    symbol: p.symbol,
+                    side: p.side,
+                    order_type: 'market',
+                    quantity: p.quantity,
+                    price: closePrice,
+                    status: 'filled',
+                    pnl: realizedPnl,
+                    notes: 'Closed position',
+                    opened_at: new Date().toISOString(),
+                    filled_at: new Date().toISOString()
+                });
+
+                // Delete position
+                await supabaseClient.from('paper_positions').delete().eq('id', id);
+
+                refreshTradingUI();
+            } catch(e) {
+                console.error('Close position error:', e);
+            }
+        }
+
+        function getCurrentPrice() {
+            if (historicalData.length === 0) return null;
+            return historicalData[historicalData.length - 1].close;
+        }
+
+        async function loadPositions() {
+            const { data } = await supabaseClient
+                .from('paper_positions')
+                .select('*')
+                .order('opened_at', { ascending: false });
+            return data || [];
+        }
+
+        async function loadOrders() {
+            const { data } = await supabaseClient
+                .from('paper_orders')
+                .select('*')
+                .order('opened_at', { ascending: false })
+                .limit(10);
+            return data || [];
+        }
+
+        function renderPositions(positions) {
+            const list = document.getElementById('positionsList');
+            if (positions.length === 0) {
+                list.innerHTML = '<div style="text-align:center;padding:8px;font-size:11px;color:var(--text-muted);">No open positions.</div>';
+                return;
+            }
+
+            let totalUnrealized = 0;
+            list.innerHTML = positions.map(p => {
+                const cur = getCurrentPrice() || p.current_price || p.entry_price;
+                const unrealized = p.side === 'long'
+                    ? (cur - p.entry_price) * p.quantity
+                    : (p.entry_price - cur) * p.quantity;
+                const pnlClass = unrealized >= 0 ? 'positive' : 'negative';
+                const pnlStr = (unrealized >= 0 ? '+' : '') + unrealized.toFixed(2);
+                totalUnrealized += unrealized;
+                return `
+                    <div class="pos-item">
+                        <div>
+                            <strong>${p.symbol}</strong> ${p.side} ${p.quantity.toFixed(4)}
+                            <div style="font-size:9px;color:var(--text-muted);">Entry: $${Number(p.entry_price).toFixed(2)}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div class="pos-pnl ${pnlClass}">$${pnlStr}</div>
+                            <button class="close-btn" onclick="closePosition(${p.id})">Close</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Update equity
+            const equity = tradeCash + totalUnrealized;
+            document.getElementById('accountEquity').innerText = `$${equity.toFixed(2)}`;
+        }
+
+        function renderOrders(orders) {
+            const list = document.getElementById('ordersList');
+            if (orders.length === 0) {
+                list.innerHTML = '<div style="text-align:center;padding:8px;font-size:10px;color:var(--text-muted);">No orders yet.</div>';
+                return;
+            }
+
+            list.innerHTML = orders.map(o => `
+                <div class="order-item">
+                    <div>
+                        <span class="o-side ${o.side}">${o.side.toUpperCase()}</span>
+                        ${o.symbol} × ${Number(o.quantity).toFixed(4)}
+                    </div>
+                    <div>
+                        ${o.price ? '$' + Number(o.price).toFixed(2) : '–'}
+                        <span class="o-status ${o.status}">${o.status}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateTradePrice() {
+            const price = getCurrentPrice();
+            document.getElementById('tradePriceLabel').innerText = price
+                ? `Price: $${price.toFixed(2)}`
+                : 'Price: –';
+        }
+
+        async function refreshTradingUI() {
+            updateTradePrice();
+            const [positions, orders] = await Promise.all([loadPositions(), loadOrders()]);
+            renderPositions(positions);
+            renderOrders(orders);
+        }
+
+        function initTrading() {
+            // Reset cash from equity curve if available (no persistence for now)
+            tradeCash = 10000;
+            refreshTradingUI();
+            // Periodic refresh every 15s
+            setInterval(refreshTradingUI, 15000);
+        }
         function toChartTime(datetime) {
             // Lightweight Charts v5 expects Unix timestamp in seconds for intraday, string 'YYYY-MM-DD' for daily+
             if (['1h', '4h'].includes(currentTimeframe)) {
@@ -1272,6 +1530,7 @@
             const checkedNames = [];
             document.querySelectorAll('.ind-cb:checked').forEach(cb => { checkedNames.push(cb.value); });
             checkedNames.forEach(name => toggleIndicator(name, true, true));
+            refreshTradingUI();
         }
 
         // Fetch AI Research
@@ -1307,6 +1566,7 @@
         loadWatchlist();
         loadChartData();
         loadResearch();
+        initTrading();
     </script>
 </body>
 </html>

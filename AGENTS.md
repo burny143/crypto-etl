@@ -26,9 +26,22 @@ crypto-etl/
 - `crypto_historical` — OHLCV bars (symbol, timeframe, datetime, open, high, low, close, volume). Data source for chart + all indicator computation.
 - `crypto_research` — AI research entries (id PK, symbol, report_type, title, summary, details JSONB, sentiment, confidence, source, created_at). Written by client-side JS after local analysis.
 - `crypto_data` — Current price snapshots (etl.py populates this).
+- `paper_orders` — Paper trading orders. Written by client-side JS on trade/close.
+- `paper_positions` — Open positions. Upsert on trade, delete on close.
+- `paper_equity_curve` — Equity snapshots (wired for writes, not yet populated from frontend).
 
 ### Unused tables (from old migration, not currently queried):
-- `indicators`, `paper_orders`, `paper_positions`, `paper_equity_curve`, `etl_metadata`
+- `indicators`, `etl_metadata`
+
+## Paper Trading (Live)
+- Paper trading panel added to right sidebar below AI Insights.
+- **Trade form**: quantity input + long/short select + "Trade" button. Market orders fill instantly.
+- **Positions list**: shows open positions with entry price, live P&L (updated via `refreshTradingUI` every 15s), and "Close" button.
+- **Order history**: last 10 orders displayed below positions.
+- **Equity**: starts at $10,000 cash. Displayed next to "Paper Trading" header. Updates with unrealized P&L.
+- **Flow**: `placeOrder()` → inserts into `paper_orders` (status='filled') → upserts into `paper_positions` (weighted avg entry). `closePosition(id)` → records closing order with realized P&L → deletes position.
+- **Refresh**: trading UI refreshes on chart data load, pair change, and every 15s via `setInterval`.
+- Requires V4 RLS policies (anon INSERT/UPDATE/DELETE on `paper_orders`, `paper_positions`, `paper_equity_curve`) to be applied. See `migrations/V2__enhanced_schema.sql` + `migrations/V4__paper_trading_rls.sql`.
 
 ## How to Run
 
@@ -72,7 +85,7 @@ python historical_etl.py
 3. **Data Loading**: Single query from `crypto_historical` via Supabase JS client (anon key). Not yet paginated — loads all available bars for current symbol/timeframe.
 4. **Research Generation**: Client-side JS computes indicators → determines sentiment/confidence → builds structured insight → attempts INSERT to `crypto_research` (may need RLS policy for anon INSERT).
 5. **Signal Engine**: Client-side JS — define conditions (indicator + operator + threshold), evaluate against loaded OHLCV data, render buy/sell markers on chart.
-6. **Paper Trading**: Not yet implemented. No backend to handle order/position state. Would need a Supabase Edge Function or restored Python backend.
+6. **Paper Trading**: Implemented client-side in JS. Market orders insert into `paper_orders` and upsert into `paper_positions` via Supabase anon key. No Edge Function or backend needed. Weighted avg entry price on add-to-position. Close position records realized P&L and deletes row. No persistence for cash balance yet (resets to $10k on page reload).
 7. **Max 3 on chart**: Limit applies to overlays on the chart canvas only. The indicator catalog should grow — more indicator types = better research capability.
 
 ## File Editing Rules
@@ -80,7 +93,11 @@ python historical_etl.py
 - The `.backups/` directory is gitignored scratch space — you can always revert by restoring a `.bak` file.
 
 ## Notes
-- Supabase anon key is embedded in `index.html`. For research INSERT to work, an RLS INSERT policy may need to be added to `crypto_research` (anon currently has SELECT only).
+- Supabase anon key has SELECT + INSERT RLS policies on `crypto_research` (V3 migration). Research entries written by client-side JS persist.
 - Service role key is in `setup.ps1` line 35 — never embed in frontend code. Only needed if paper trading endpoints are re-implemented.
 - The Supabase project URL and anon key are also in `setup.ps1`.
 - The Python backend (`backend/`) is kept for reference but no longer invoked. The JS functions are standalone ports of the pandas/numpy logic.
+
+## RLS Policies
+- `crypto_research`: Allow public read (SELECT), Allow public insert (INSERT for anon) — applied via `supabase_migration.sql` + `migrations/V3__research_insert_policy.sql`
+- `paper_orders`, `paper_positions`, `paper_equity_curve`: Allow public read (SELECT), Allow anon INSERT/UPDATE/DELETE — applied via `migrations/V2__enhanced_schema.sql` + `migrations/V4__paper_trading_rls.sql`
