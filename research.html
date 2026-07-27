@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trader's Lab — Research Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg-base: #0d1117;
+    --bg-panel: #161b22;
+    --bg-hover: #1c2333;
+    --border: #30363d;
+    --accent: #2962ff;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --up: #089981;
+    --down: #f23645;
+    --neutral: #8b949e;
+    --warning: #ff9800;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-base);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Layout ── */
+  .app-header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+  .app-header h1 {
+    font-size: 18px; font-weight: 600;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .app-header .subtitle {
+    font-size: 11px; color: var(--text-muted);
+    margin-left: auto;
+  }
+  .app-header a {
+    color: var(--accent); text-decoration: none; font-size: 13px;
+  }
+  .app-header a:hover { text-decoration: underline; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+  /* ── Filter Bar ── */
+  .filter-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .filter-bar label { font-size: 12px; color: var(--text-muted); }
+  .filter-bar input, .filter-bar select {
+    background: var(--bg-base); border: 1px solid var(--border);
+    color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 13px;
+  }
+  .filter-bar input:focus, .filter-bar select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .filter-bar .stats {
+    margin-left: auto; font-size: 12px; color: var(--text-muted);
+    display: flex; gap: 16px;
+  }
+  .filter-bar .stats span { display: flex; align-items: center; gap: 4px; }
+  .stat-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  /* ── Table ── */
+  .table-wrap {
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--bg-panel);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 10px 14px;
+    font-weight: 500; font-size: 11px; text-transform: uppercase;
+    color: var(--text-muted); border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.03); white-space: nowrap;
+    cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr.clickable { cursor: pointer; transition: background 0.15s; }
+  tr.clickable:hover { background: var(--bg-hover); }
+  tr.expanded { background: rgba(41, 98, 255, 0.06); }
+  .detail-row td { padding: 0; }
+  .detail-row.hidden { display: none; }
+
+  .detail-content {
+    padding: 16px 20px 20px 20px;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .detail-section {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .detail-section h4 {
+    font-size: 11px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+    letter-spacing: 0.5px;
+  }
+  .detail-section.full { grid-column: 1 / -1; }
+  .detail-section .research-item {
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .detail-section .research-item:last-child { border: none; }
+  .detail-section .research-item .meta { font-size: 11px; color: var(--text-muted); }
+  .detail-section .strat-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .detail-section .strat-row:last-child { border: none; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .badge-bullish { background: rgba(8, 153, 129, 0.15); color: var(--up); }
+  .badge-bearish { background: rgba(242, 54, 69, 0.15); color: var(--down); }
+  .badge-neutral { background: rgba(139, 148, 158, 0.15); color: var(--neutral); }
+
+  .signal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .signal-dot.up { background: var(--up); }
+  .signal-dot.down { background: var(--down); }
+
+  .expand-icon { font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
+  .expand-icon.open { transform: rotate(90deg); }
+
+  /* ── Numeric ── */
+  .num { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; text-align: right; }
+  .pos { color: var(--up); }
+  .neg { color: var(--down); }
+
+  /* ── Empty / Loading ── */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+  }
+  .empty-state h3 { font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+  .empty-state p { font-size: 13px; }
+  .loading {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+  }
+  .loading::after {
+    content: ''; display: block; margin: 12px auto 0;
+    width: 24px; height: 24px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Consensus Bar ── */
+  .consensus-bar {
+    margin-top: 6px; height: 6px;
+    background: var(--border); border-radius: 3px; overflow: hidden; display: flex;
+  }
+  .consensus-bar .bull { height:100%; background: var(--up); transition: width 0.4s; }
+  .consensus-bar .neut { height:100%; background: var(--neutral); transition: width 0.4s; }
+  .consensus-bar .bear { height:100%; background: var(--down); transition: width 0.4s; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .container { padding: 12px; }
+    .filter-bar { flex-direction: column; align-items: stretch; }
+    .filter-bar .stats { margin-left: 0; }
+    .detail-content { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <h1>Trader's Lab</h1>
+  <span style="font-size:12px;color:var(--text-muted);font-weight:400;">Research Dashboard</span>
+  <div class="subtitle">
+    <a href="charts.html">← Back to Charts</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="filter-bar">
+    <label>Search</label>
+    <input type="text" id="searchInput" placeholder="Symbol..." style="width:120px;">
+
+    <label>Sentiment</label>
+    <select id="sentimentFilter">
+      <option value="all">All</option>
+      <option value="bullish">Bullish</option>
+      <option value="bearish">Bearish</option>
+      <option value="neutral">Neutral</option>
+    </select>
+
+    <label>Sort</label>
+    <select id="sortSelect">
+      <option value="sentiment">Sentiment</option>
+      <option value="change">Change</option>
+      <option value="confidence">Confidence</option>
+      <option value="updated">Last Updated</option>
+      <option value="symbol">Symbol</option>
+    </select>
+
+    <div class="stats" id="statsBar">
+      <span id="totalCount">—</span>
+      <span><span class="stat-dot" style="background:var(--up)"></span><span id="bullCount">—</span></span>
+      <span><span class="stat-dot" style="background:var(--down)"></span><span id="bearCount">—</span></span>
+      <span><span class="stat-dot" style="background:var(--neutral)"></span><span id="neutCount">—</span></span>
+    </div>
+    <span style="display:flex;align-items:center;gap:4px;">
+      <label style="font-size:11px;">Chg</label>
+      <span class="btn-group" style="display:flex;gap:0;">
+        <button class="tf-btn active" data-tf="d1" onclick="setChangeTf('d1')" style="background:transparent;border:1px solid var(--accent);color:var(--text);padding:3px 8px;font-size:11px;cursor:pointer;">1D</button>
+        <button class="tf-btn" data-tf="w1" onclick="setChangeTf('w1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1W</button>
+        <button class="tf-btn" data-tf="m1" onclick="setChangeTf('m1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1M</button>
+        <button class="tf-btn" data-tf="y1" onclick="setChangeTf('y1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1Y</button>
+      </span>
+    </span>
+    <button onclick="batchGenerateResearch()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;">Generate Insights</button>
+    <div id="researchStatus" style="display:none;align-items:center;gap:8px;font-size:12px;color:var(--accent);margin-left:auto;">
+      <span class="rs-spinner" style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;"></span>
+      <span class="rs-label"></span>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th>Symbol</th>
+          <th class="num">Change <span id="changeLabel" style="font-size:10px;color:var(--accent);">1D</span></th>
+          <th>Sentiment</th>
+          <th class="num">Confidence</th>
+          <th class="num">Best Strategy</th>
+          <th class="num">Win Rate</th>
+          <th>Last Research</th>
+          <th class="num">Entries</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="9"><div class="loading">Loading research data…</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const { createClient } = supabase;
+  const SUPABASE_URL = "https://ymnlqggxeeyqvrojsrzh.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltbmxxZ2d4ZWV5cXZyb2pzcnpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3NjQ2NDQsImV4cCI6MjA5OTM0MDY0NH0.wsO53Ninsb_9Mxt0Me5q3vYuQMr5XFUASYgdBzeHfbQ";
+  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ── State ──
+  let aggregated = [];
+  let expandedSymbol = null;
+  let watchlistData = [];
+  let priceChanges = {};       // { symbol: { d1, w1, m1, y1 } }
+  let changeTf = 'd1';         // 'd1', 'w1', 'm1', 'y1'
+  let researchInProgress = false;  // concurrency guard for batchGenerateResearch
+
+  // ── Helpers ──
+  function escapeHtml(str) {
+    if (str == null) return '';
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(str)));
+    return d.innerHTML;
+  }
+
+  function jsEscape(str) {
+    // Escape \ and ' so the string is safe for single-quoted onclick attribute values
+    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  function timeAgo(dateStr) {
+    const ms = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+  }
+
+  function sentimentBadge(s) {
+    const label = (s || 'neutral').toLowerCase();
+    return `<span class="badge badge-${label}">${label.toUpperCase()}</span>`;
+  }
+
+  // ── Indicator Helpers (ported from charts.html) ──
+  const gC = d => d.close, gH = d => d.high, gL = d => d.low, gV = d => d.value, gT = d => d.time;
+  function getClose(d) { return d.map(gC); }
+  function getHigh(d) { return d.map(gH); }
+  function getLow(d) { return d.map(gL); }
+  function getVolume(d) { return d.map(gV); }
+  function getTime(d) { return d.map(gT); }
+
+  function computeSMA(data, period) {
+    const close = getClose(data), times = getTime(data);
+    const result = [];
+    for (let i = period - 1; i < close.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) sum += close[i - j];
+      result.push({ time: times[i], value: sum / period });
+    }
+    return result;
+  }
+
+  function computeEMA(data, period) {
+    const close = getClose(data), times = getTime(data);
+    const k = 2 / (period + 1);
+    const result = [];
+    for (let i = 0; i < close.length; i++) {
+      if (i < period - 1) continue;
+      if (i === period - 1) {
+        const ema = close.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        result.push({ time: times[i], value: ema });
+      } else {
+        const prev = result[result.length - 1].value;
+        result.push({ time: times[i], value: close[i] * k + prev * (1 - k) });
+      }
+    }
+    return result;
+  }
+
+  function computeRSI(data, period) {
+    const close = getClose(data), times = getTime(data);
+    if (close.length < period + 1) return [];
+    const deltas = [];
+    for (let i = 1; i < close.length; i++) deltas.push(close[i] - close[i - 1]);
+    let avgG = 0, avgL = 0;
+    for (let i = 0; i < period; i++) { if (deltas[i] > 0) avgG += deltas[i]; else avgL -= deltas[i]; }
+    avgG /= period; avgL /= period;
+    const result = [];
+    if (avgG === 0 && avgL === 0) { result.push({ time: times[period], value: 50 }); }
+    else if (avgL === 0) { result.push({ time: times[period], value: 100 }); }
+    else { result.push({ time: times[period], value: 100 - 100 / (1 + avgG / avgL) }); }
+    for (let i = period + 1; i < close.length; i++) {
+      const diff = close[i] - close[i - 1];
+      avgG = ((avgG * (period - 1)) + (diff > 0 ? diff : 0)) / period;
+      avgL = ((avgL * (period - 1)) + (diff < 0 ? -diff : 0)) / period;
+      if (avgG === 0 && avgL === 0) { result.push({ time: times[i], value: 50 }); }
+      else if (avgL === 0) { result.push({ time: times[i], value: 100 }); }
+      else { result.push({ time: times[i], value: 100 - 100 / (1 + avgG / avgL) }); }
+    }
+    return result;
+  }
+
+  function computeTR(high, low, prevClose) {
+    const tr = [0];
+    for (let i = 1; i < high.length; i++) {
+      const hl = high[i] - low[i];
+      const hc = Math.abs(high[i] - prevClose[i - 1]);
+      const lc = Math.abs(low[i] - prevClose[i - 1]);
+      tr.push(Math.max(hl, hc, lc));
+    }
+    return tr;
+  }
+
+  function computeATR(data, period) {
+    const high = getHigh(data), low = getLow(data), close = getClose(data), times = getTime(data);
+    if (close.length < period + 1) return [];
+    const tr = computeTR(high, low, close);
+    let atr = tr.slice(1, period + 1).reduce((a, b) => a + b, 0) / period;
+    const result = [{ time: times[period], value: atr }];
+    for (let i = period + 1; i < tr.length; i++) {
+      atr = (atr * (period - 1) + tr[i]) / period;
+      result.push({ time: times[i], value: atr });
+    }
+    return result;
+  }
+
+  function computeADX(data, period) {
+    const high = getHigh(data), low = getLow(data), close = getClose(data), times = getTime(data);
+    if (close.length < period * 2) return [];
+    const tr = computeTR(high, low, close);
+    const pDM = [0], mDM = [0];
+    for (let i = 1; i < high.length; i++) {
+      const up = high[i] - high[i - 1];
+      const dn = low[i - 1] - low[i];
+      pDM.push((up > dn && up > 0) ? up : 0);
+      mDM.push((dn > up && dn > 0) ? dn : 0);
+    }
+    const smooth = (arr, p) => {
+      let val = arr.slice(1, p + 1).reduce((a, b) => a + b, 0) / p;
+      const res = [val];
+      for (let i = p + 1; i < arr.length; i++) { val = (val * (p - 1) + arr[i]) / p; res.push(val); }
+      return res;
+    };
+    const sTR = smooth(tr, period);
+    const sPDM = smooth(pDM, period);
+    const sMDM = smooth(mDM, period);
+    const pDI = sPDM.map((v, i) => 100 * v / (sTR[i] || 0.001));
+    const mDI = sMDM.map((v, i) => 100 * v / (sTR[i] || 0.001));
+    const dx = pDI.map((v, i) => 100 * Math.abs(v - mDI[i]) / ((v + mDI[i]) || 0.001));
+    const result = [{ time: times[period * 2 - 1], value: dx.slice(0, Math.min(period, dx.length)).reduce((a, b) => a + b, 0) / Math.min(period, dx.length) }];
+    let adx = result[0].value;
+    for (let i = period; i < dx.length; i++) {
+      adx = (adx * (period - 1) + dx[i]) / period;
+      result.push({ time: times[period + i], value: adx });
+    }
+    return result;
+  }
+
+  function computeOBV(data) {
+    const close = getClose(data), volume = getVolume(data), times = getTime(data);
+    let obv = 0;
+    const result = [{ time: times[0], value: 0 }];
+    for (let i = 1; i < close.length; i++) {
+      obv += Math.sign(close[i] - close[i - 1]) * volume[i];
+      result.push({ time: times[i], value: obv });
+    }
+    return result;
+  }
+
+  function computeBB(data, period, std) {
+    const close = getClose(data), times = getTime(data);
+    if (close.length < period) return { upper: [], mid: [], lower: [] };
+    const mid = computeSMA(data, period);
+    const upper = [], lower = [];
+    for (let i = period - 1; i < close.length; i++) {
+      const m = mid[i - (period - 1)].value;
+      let sqSum = 0;
+      for (let j = 0; j < period; j++) sqSum += (close[i - j] - m) ** 2;
+      const s = Math.sqrt(sqSum / period);
+      upper.push({ time: times[i], value: m + std * s });
+      lower.push({ time: times[i], value: m - std * s });
+    }
+    return { upper, mid, lower };
+  }
+
+  function computeKC(data, period, mult) {
+    const close = getClose(data);
+    if (close.length < period * 2) return { upper: [], mid: [], lower: [] };
+    const mid = computeEMA(data, period);
+    const atr = computeATR(data, period);
+    const atrByTime = new Map(atr.map(p => [p.time, p.value]));
+    const upper = [], lower = [];
+    for (const p of mid) {
+      const atrVal = atrByTime.get(p.time);
+      if (atrVal == null) continue;
+      upper.push({ time: p.time, value: p.value + mult * atrVal });
+      lower.push({ time: p.time, value: p.value - mult * atrVal });
+    }
+    return { upper, mid: mid.filter(p => atrByTime.has(p.time)), lower };
+  }
+
+  // ── Insight Generators (3 tiers: OHLCV → strategy → price) ──
+  function createStrategyInsight(symbol, price, strategies) {
+    const best = strategies.length > 0
+      ? strategies.reduce((b, s) => (s.sharpe_ratio || 0) > (b.sharpe_ratio || 0) ? s : b, strategies[0])
+      : null;
+    if (!best || best.sharpe_ratio == null) return null;
+
+    const sh = best.sharpe_ratio;
+    const wr = best.win_rate || 0;
+    const ret = best.total_return_pct || 0;
+    const name = (best.strategy_name || '?').replace(/_/g, ' ');
+    const tf = best.timeframe || '—';
+
+    let sentiment, confidence;
+    // Tier 2 is a history report, not a market-direction signal.
+    // "Best of N backtests" is structurally optimistic (selection bias);
+    // deriving market sentiment from it would produce a false bullish skew.
+    // Always neutral — let Tier 1 (live OHLCV analysis) own directional calls.
+    sentiment = 'neutral'; confidence = 0.2;
+
+    return {
+      symbol,
+      report_type: 'strategy_review',
+      title: `${symbol} Strategy Overview — ${name}`,
+      summary: `${symbol}: ${sentiment.toUpperCase()} ${Math.round(confidence * 100)}% conf. Best backtest: ${name} (${tf}) — Sharpe ${sh.toFixed(2)}, WR ${wr.toFixed(1)}%, Return ${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%.`,
+      details: {
+        best_strategy: { name, timeframe: tf, sharpe: Math.round(sh * 100) / 100, win_rate: Math.round(wr * 10) / 10, return_pct: Math.round(ret * 10) / 10 },
+        price_at_analysis: price,
+        data_sources: ['strategy_results'],
+      },
+      sentiment,
+      confidence: Math.round(confidence * 100) / 100,
+      source: 'signal_engine',
+    };
+  }
+
+  function createPriceInsight(symbol, price) {
+    const sentiment = 'neutral';
+    const confidence = 0.2;
+    return {
+      symbol,
+      report_type: 'market_snapshot',
+      title: `${symbol} Market Snapshot`,
+      summary: `${symbol} tracked at ${price != null ? '$' + Number(price).toLocaleString(undefined, {minimumFractionDigits: 2}) : '—'}. Limited OHLCV and backtest data available. Low-confidence neutral stance until more data is collected.`,
+      details: {
+        current_price: price,
+        data_quality: 'price_only',
+        note: 'Insufficient historical data for technical analysis. Entry will improve as data accumulates.',
+      },
+      sentiment,
+      confidence,
+      source: 'signal_engine',
+    };
+  }
+
+  function computeResearchEntry(symbol, bars) {
+    const close = getClose(bars), high = getHigh(bars), low = getLow(bars), vol = getVolume(bars);
+    if (close.length < 30) return null;
+
+    const cur = close[close.length - 1];
+    const sma20 = computeSMA(bars, 20);
+    const sma50 = computeSMA(bars, 50);
+    const e12 = computeEMA(bars, 12);
+    const e26 = computeEMA(bars, 26);
+    const rsi = computeRSI(bars, 14);
+    const adx = computeADX(bars, 14);
+    const atr = computeATR(bars, 14);
+    const obv = computeOBV(bars);
+    const bb = computeBB(bars, 20, 2);
+    const kc = computeKC(bars, 20, 1.5);
+
+    const lRSI = rsi.length > 0 ? rsi[rsi.length - 1].value : 50;
+    const lADX = adx.length > 0 ? adx[adx.length - 1].value : 0;
+    const lATR = atr.length > 0 ? atr[atr.length - 1].value : cur * 0.02;
+    const lSMA20 = sma20.length > 0 ? sma20[sma20.length - 1].value : cur;
+    const lSMA50 = sma50.length > 0 ? sma50[sma50.length - 1].value : null;
+    const lEF = e12.length > 0 ? e12[e12.length - 1].value : cur;
+    const lES = e26.length > 0 ? e26[e26.length - 1].value : cur;
+
+    const obvV = obv.map(p => p.value).filter(v => v != null);
+    const obvT = obvV.length > 10 && obvV[obvV.length - 1] > obvV[obvV.length - 10] ? 'rising' : 'falling';
+
+    const bbU = bb.upper.length > 0 ? bb.upper[bb.upper.length - 1].value : cur;
+    const bbL = bb.lower.length > 0 ? bb.lower[bb.lower.length - 1].value : cur;
+    const bbW = (bbU - bbL) / (lSMA20 || 0.001);
+    const squeeze = bbW < 0.05 ? 'squeeze' : 'normal';
+
+    const kcU = kc.upper.length > 0 ? kc.upper[kc.upper.length - 1].value : cur;
+    const kcL = kc.lower.length > 0 ? kc.lower[kc.lower.length - 1].value : cur;
+    const kcB = cur > kcU ? 'upper' : cur < kcL ? 'lower' : 'none';
+
+    const tBull = lEF > lES && lADX > 25;
+    const tBear = lEF < lES && lADX > 25;
+
+    let score = 0;
+    if (lRSI < 30) score += 2;
+    if (lRSI > 70) score -= 2;
+    if (tBull) score += 3;
+    if (tBear) score -= 3;
+    if (kcB === 'upper') score += 2;
+    if (kcB === 'lower') score -= 2;
+
+    let sentiment, confidence;
+    if (score > 2) { sentiment = 'bullish'; confidence = Math.min(0.5 + Math.abs(score) * 0.06, 0.9); }
+    else if (score < -2) { sentiment = 'bearish'; confidence = Math.min(0.5 + Math.abs(score) * 0.06, 0.9); }
+    else { sentiment = 'neutral'; confidence = 0.3; }
+    if (lADX > 30) confidence = Math.min(confidence + 0.1, 0.95);
+    else if (lADX < 20) confidence = Math.max(confidence - 0.1, 0.1);
+
+    const volPct = lATR / cur;
+    const volL = volPct > 0.03 ? 'high' : volPct > 0.015 ? 'moderate' : 'low';
+    const trend = tBull ? 'bullish' : tBear ? 'bearish' : 'neutral';
+
+    return {
+      symbol,
+      report_type: 'market_analysis',
+      title: `${symbol} Technical Analysis — ${trend.charAt(0).toUpperCase() + trend.slice(1)}`,
+      summary: `${symbol}: ${sentiment.toUpperCase()} ${Math.round(confidence * 100)}% conf. RSI ${lRSI.toFixed(1)}, ADX ${lADX.toFixed(1)}.`,
+      details: {
+        trend, volatility: volL,
+        indicators: {
+          rsi: Math.round(lRSI * 10) / 10,
+          adx: Math.round(lADX * 10) / 10,
+          atr_pct: Math.round(volPct * 10000) / 100,
+          bb_width: Math.round(bbW * 1000) / 1000,
+          keltner_breakout: kcB,
+          obv_trend: obvT,
+          squeeze_detected: squeeze === 'squeeze',
+          ema_cross: lEF > lES ? 'bullish' : 'bearish',
+        },
+      },
+      sentiment,
+      confidence: Math.round(confidence * 100) / 100,
+      source: 'signal_engine',
+    };
+  }
+
+  async function batchGenerateResearch() {
+    if (researchInProgress) {
+      console.warn('batchGenerateResearch already running — skipping duplicate invocation');
+      return;
+    }
+    researchInProgress = true;
+    const status = document.getElementById('researchStatus');
+    const label = status.querySelector('.rs-label');
+    status.style.display = 'flex';
+    status.querySelector('.rs-spinner').style.display = 'inline-block';
+
+    const allSymbols = aggregated.map(a => a.symbol).filter(s => s && s !== 'UNKNOWN');
+    if (allSymbols.length === 0) { label.textContent = 'No symbols to research'; researchInProgress = false; return; }
+
+    // Check which symbols already have today's research.
+    // Use UTC day boundary so behaviour is deterministic across timezones.
+    const todayUtc = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
+    const { data: existing } = await supabaseClient.from('crypto_research')
+      .select('symbol').gte('created_at', todayUtc);
+    const done = new Set((existing || []).map(r => r.symbol));
+
+    const need = allSymbols.filter(s => !done.has(s));
+    if (need.length === 0) {
+      label.textContent = 'All symbols researched today ✓';
+      setTimeout(() => { status.style.display = 'none'; }, 4000);
+      researchInProgress = false;
+      return;
+    }
+
+    try {
+    label.textContent = `Fetching data for ${need.length} symbols…`;
+    let completed = 0;
+
+    // Fetch OHLCV in parallel with concurrency limit of 6
+    const TIMEFRAMES = ['1d', '1h', '4h'];
+    const chunk = (arr, sz) => { const r = []; for (let i = 0; i < arr.length; i += sz) r.push(arr.slice(i, i + sz)); return r; };
+    const entries = [];
+    for (const batch of chunk(need, 6)) {
+      const results = await Promise.allSettled(batch.map(async (symbol) => {
+        // Try timeframes in order (1d → 1h → 4h), use first with enough data
+        let bars = null;
+        for (const tf of TIMEFRAMES) {
+          const { data, error } = await supabaseClient.from('crypto_historical')
+            .select('timestamp, open, high, low, close, volume')
+            .eq('symbol', symbol).eq('timeframe', tf)
+            .order('timestamp', { ascending: false }).limit(250);
+          if (!error && data && data.length >= 30) {
+            data.reverse();
+            bars = data.map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close, value: d.volume }));
+            break;
+          }
+        }
+        completed++;
+        if (bars) {
+          // Tier 1: full OHLCV-based technical analysis
+          const entry = computeResearchEntry(symbol, bars);
+          if (entry) { label.textContent = `Researched ${completed}/${need.length} (${symbol})…`; return entry; }
+        }
+        // Tier 2: strategy-based insight (use aggregated data from loadAll)
+        const symData = aggregated.find(a => a.symbol === symbol);
+        const strategies = symData?.strategies || [];
+        const price = symData?.latestPrice || null;
+        const stratEntry = createStrategyInsight(symbol, price, strategies);
+        if (stratEntry) { label.textContent = `Researched ${completed}/${need.length} (${symbol}: strategy)…`; return stratEntry; }
+        // Tier 3: price-only snapshot
+        label.textContent = `Researched ${completed}/${need.length} (${symbol}: price only)…`;
+        return createPriceInsight(symbol, price);
+      }));
+      for (const r of results) { if (r.status === 'fulfilled' && r.value) entries.push(r.value); }
+    }
+
+    if (entries.length === 0) {
+      label.textContent = 'No research could be generated (insufficient data)';
+      setTimeout(() => { status.style.display = 'none'; }, 5000);
+      researchInProgress = false;
+      return;
+    }
+
+    label.textContent = `Saving ${entries.length} entries…`;
+    const { error } = await supabaseClient.from('crypto_research').insert(entries);
+    if (error) {
+      console.warn('Batch insert error:', error);
+      label.textContent = `Saved — DB error: ${error.message}`;
+    } else {
+      label.textContent = `${entries.length} entries saved ✓`;
+    }
+    status.querySelector('.rs-spinner').style.display = 'none';
+
+    // Refresh dashboard
+    await loadAll();
+    } finally {
+      researchInProgress = false;
+    }
+    setTimeout(() => { status.style.display = 'none'; }, 6000);
+  }
+
+  // ── Price Change Loader ──
+  async function loadPriceChanges() {
+    const symbols = aggregated.map(a => a.symbol).filter(s => s && s !== 'UNKNOWN');
+    if (symbols.length === 0) return;
+    const TIMEFRAMES = ['1d', '1h', '4h'];
+    const chunk = (arr, sz) => { const r = []; for (let i = 0; i < arr.length; i += sz) r.push(arr.slice(i, i + sz)); return r; };
+    const result = {};
+    for (const batch of chunk(symbols, 6)) {
+      await Promise.allSettled(batch.map(async (symbol) => {
+        // crypto_historical stores symbols in -USDT format, but aggregated
+        // symbols come from crypto_data (mixed -USD/-USDT). Try both.
+        const symbolVariants = symbol.endsWith('-USD')
+          ? [symbol, symbol.replace('-USD', '-USDT')]
+          : [symbol];
+        for (const tf of TIMEFRAMES) {
+          let data = null;
+          for (const sv of symbolVariants) {
+            const resp = await supabaseClient.from('crypto_historical')
+              .select('close, timestamp')
+              .eq('symbol', sv).eq('timeframe', tf)
+              .order('timestamp', { ascending: false }).limit(tf === '1d' ? 370 : tf === '1h' ? 720 : 180);
+            if (resp.data && resp.data.length >= 2) { data = resp.data; break; }
+          }
+          if (!data) continue;
+          const cur = data[0].close;
+          const findClosest = (targetTs) => {
+            const target = Date.parse(targetTs);
+            for (const d of data) {
+              const t = Date.parse(d.timestamp);
+              if (t <= target) return d.close;
+            }
+            return null;
+          };
+          const now = Date.now();
+          const day = 86400000;
+          const ch = {};
+          if (data.length >= 2) {
+            const prev = data.find(d => Date.parse(d.timestamp) <= now - day) || data[data.length - 1];
+            ch.d1 = prev ? (cur - prev.close) / prev.close * 100 : null;
+          }
+          if (tf === '1d' && data.length >= 7) {
+            const w = findClosest(new Date(now - 7 * day).toISOString());
+            ch.w1 = w ? (cur - w) / w * 100 : null;
+          } else if (tf !== '1d' && data.length >= 170) {
+            const w = findClosest(new Date(now - 7 * day).toISOString());
+            ch.w1 = w ? (cur - w) / w * 100 : null;
+          }
+          if (tf === '1d' && data.length >= 30) {
+            const m = findClosest(new Date(now - 30 * day).toISOString());
+            ch.m1 = m ? (cur - m) / m * 100 : null;
+          }
+          if (tf === '1d' && data.length >= 365) {
+            const y = findClosest(new Date(now - 365 * day).toISOString());
+            ch.y1 = y ? (cur - y) / y * 100 : null;
+          }
+          if (ch.d1 != null) { result[symbol] = ch; return; }
+        }
+        if (!result[symbol]) result[symbol] = {};
+      }));
+    }
+    priceChanges = result;
+    applyFilters();
+  }
+
+  // ── Load ──
+  async function loadAll() {
+    try {
+      document.getElementById('tableBody').innerHTML =
+        '<tr><td colspan="9"><div class="loading">Loading research data…</div></td></tr>';
+
+      const sessionId = localStorage.getItem('paperSessionId') || 'none';
+      // First get latest research run_id to scope strategy_results
+      const runResp = await supabaseClient
+        .from('research_runs')
+        .select('run_id')
+        .order('run_timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let latestRunId = runResp.data?.run_id || null;
+      if (runResp.error) console.warn('research_runs query:', runResp.error);
+
+      const [researchResp, stratsResp, watchResp, posResp] = await Promise.all([
+        supabaseClient.from('crypto_research').select('*').order('created_at', { ascending: false }),
+        // Filter strategy_results to latest run_id only to avoid duplicate / stale results
+        latestRunId
+          ? supabaseClient.from('strategy_results').select('strategy_name, symbol, timeframe, sharpe_ratio, win_rate, total_return_pct, profit_factor, trade_count').gte('trade_count', 30).eq('run_id', latestRunId).order('sharpe_ratio', { ascending: false })
+          : supabaseClient.from('strategy_results').select('strategy_name, symbol, timeframe, sharpe_ratio, win_rate, total_return_pct, profit_factor, trade_count').gte('trade_count', 30).order('sharpe_ratio', { ascending: false }),
+        supabaseClient.from('crypto_data').select('symbol, current_price').order('fetched_at', { ascending: false }),
+        supabaseClient.from('paper_positions').select('symbol, side, quantity, entry_price').eq('session_id', sessionId),
+      ]);
+
+      // Log any Supabase-level errors (returned in response, not thrown)
+      if (researchResp.error) console.warn('research query:', researchResp.error);
+      if (stratsResp.error) console.warn('strategy_results query:', stratsResp.error);
+      if (watchResp.error) console.warn('crypto_data query:', watchResp.error);
+      if (posResp.error) console.warn('paper_positions query:', posResp.error);
+
+      const researchData = researchResp.data || [];
+      const rawStrategyData = stratsResp.data || [];
+      watchlistData = watchResp.data || [];
+      const positionsData = posResp.data || [];
+
+      // Normalize strategy symbols from USDT→USD to match crypto_data format
+      const strategyData = rawStrategyData.map(s => ({
+        ...s,
+        symbol: (s.symbol || '').replace(/-USDT$/i, '-USD')
+      }));
+
+      // Group research by symbol
+      const symbolMap = {};
+      for (const r of researchData) {
+        const sym = r.symbol || 'UNKNOWN';
+        if (!symbolMap[sym]) symbolMap[sym] = { symbol: sym, entries: [], sentiments: [], confidences: [] };
+        symbolMap[sym].entries.push(r);
+        if (r.sentiment) symbolMap[sym].sentiments.push(r.sentiment);
+        if (r.confidence != null) symbolMap[sym].confidences.push(r.confidence);
+      }
+
+      // All known symbols from all sources
+      const allSymbols = [...new Set([
+        ...Object.keys(symbolMap),
+        ...strategyData.map(s => s.symbol).filter(Boolean),
+        ...watchlistData.map(w => w.symbol).filter(Boolean)
+      ])].sort();
+
+      for (const sym of allSymbols) {
+        if (!symbolMap[sym]) symbolMap[sym] = { symbol: sym, entries: [], sentiments: [], confidences: [] };
+      }
+
+      aggregated = allSymbols.map(sym => {
+        const g = symbolMap[sym];
+        const latest = g.entries[0] || null;
+        const sentiments = g.sentiments;
+        const confidences = g.confidences;
+
+        const bullCount = sentiments.filter(s => s === 'bullish').length;
+        const bearCount = sentiments.filter(s => s === 'bearish').length;
+        const neutCount = sentiments.filter(s => s === 'neutral').length;
+        let aggSentiment = 'neutral';
+        if (bullCount > bearCount && bullCount > neutCount) aggSentiment = 'bullish';
+        else if (bearCount > bullCount && bearCount > neutCount) aggSentiment = 'bearish';
+        // Tie: when bullCount === bearCount (or both < neutCount), falls through to neutral.
+        // This is a deliberate conservative default — no false signal on split consensus.
+
+        const avgConfidence = confidences.length > 0
+          ? confidences.reduce((a, b) => a + b, 0) / confidences.length
+          : null;
+
+        const symStrats = strategyData.filter(s => s.symbol === sym);
+        let bestStrat = null;
+        if (symStrats.length > 0) {
+          bestStrat = symStrats.reduce((b, s) => (s.sharpe_ratio || 0) > (b.sharpe_ratio || 0) ? s : b, symStrats[0]);
+        }
+
+        const latestPrice = watchlistData.find(w => w.symbol === sym)?.current_price || null;
+        const openPos = positionsData.find(p => p.symbol === sym);
+
+        return {
+          symbol: sym,
+          latestEntry: latest,
+          entryCount: g.entries.length,
+          sentiment: aggSentiment,
+          confidence: avgConfidence,
+          bestStrat,
+          bestStratWinRate: bestStrat ? bestStrat.win_rate : null,
+          latestPrice,
+          openPos,
+          entries: g.entries,
+          strategies: symStrats.slice(0, 10),
+          bullCount, bearCount, neutCount,
+        };
+      });
+
+      applyFilters();
+      // Load price changes for all symbols (from OHLCV data)
+      loadPriceChanges();
+      // Auto-trigger batch research only if no research exists for any symbol today.
+      // Fires at most once per session because subsequent symbols get marked "done" by the insert.
+      const todayUtcAuto = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
+      const { data: existingAuto } = await supabaseClient.from('crypto_research')
+        .select('symbol').gte('created_at', todayUtcAuto).limit(1);
+      if (!existingAuto || existingAuto.length === 0) {
+        setTimeout(() => { batchGenerateResearch().catch(e => console.warn('Batch research error:', e)); }, 300);
+      }
+    } catch(e) {
+      console.error('Load error:', e);
+      document.getElementById('tableBody').innerHTML =
+        `<tr><td colspan="9"><div class="empty-state">
+          <h3>Failed to load data</h3>
+          <p>${escapeHtml(e.message)}</p>
+        </div></td></tr>`;
+    }
+  }
+
+  // ── Filter + Sort + Render ──
+  function applyFilters() {
+    const search = document.getElementById('searchInput').value.toLowerCase().trim();
+    const sentFilter = document.getElementById('sentimentFilter').value;
+    const sortBy = document.getElementById('sortSelect').value;
+
+    let filtered = aggregated.filter(a => {
+      if (search && !a.symbol.toLowerCase().includes(search)) return false;
+      if (sentFilter !== 'all' && a.sentiment !== sentFilter) return false;
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'symbol': return a.symbol.localeCompare(b.symbol);
+        case 'change': return (priceChanges[b.symbol]?.[changeTf] || 0) - (priceChanges[a.symbol]?.[changeTf] || 0);
+        case 'confidence': return (b.confidence || 0) - (a.confidence || 0);
+        case 'updated': {
+          const aT = a.latestEntry ? new Date(a.latestEntry.created_at).getTime() : 0;
+          const bT = b.latestEntry ? new Date(b.latestEntry.created_at).getTime() : 0;
+          return bT - aT;
+        }
+        case 'sentiment': {
+          const order = { bullish: 0, neutral: 1, bearish: 2 };
+          // Use hasOwnProperty so bullish (0) doesn't collapse to 1 via || fallback
+          const oa = Object.prototype.hasOwnProperty.call(order, a.sentiment) ? order[a.sentiment] : 1;
+          const ob = Object.prototype.hasOwnProperty.call(order, b.sentiment) ? order[b.sentiment] : 1;
+          return oa - ob;
+        }
+        default: return 0;
+      }
+    });
+
+    renderTable(filtered);
+    updateStats();
+  }
+
+  // ── Render Table ──
+  function renderTable(rows) {
+    const tbody = document.getElementById('tableBody');
+
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">
+        <h3>No results</h3>
+        <p>Try adjusting your filters</p>
+      </div></td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map(a => {
+      const open = expandedSymbol === a.symbol;
+      const confStr = a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—';
+      const bestName = a.bestStrat
+        ? (a.bestStrat.strategy_name || 'Unknown').replace(/_/g, ' ')
+        : '—';
+      const winRateStr = a.bestStratWinRate != null ? a.bestStratWinRate.toFixed(1) + '%' : '—';
+      const lastTime = a.latestEntry ? timeAgo(a.latestEntry.created_at) : '—';
+      const priceStr = a.latestPrice != null
+        ? '$' + Number(a.latestPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })
+        : '';
+      const posIcon = a.openPos ? (a.openPos.side === 'long' ? '🟢' : '🔴') : '';
+
+      // Price change for selected timeframe
+      const pc = priceChanges[a.symbol] || {};
+      const chVal = pc[changeTf];
+      let chStr = '—', chCls = '';
+      if (chVal != null) {
+        chStr = (chVal >= 0 ? '+' : '') + chVal.toFixed(2) + '%';
+        chCls = chVal > 0 ? 'pos' : chVal < 0 ? 'neg' : '';
+      }
+
+      return `
+        <tr class="clickable ${open ? 'expanded' : ''}" onclick="toggleExpand('${jsEscape(a.symbol)}')">
+          <td><span class="expand-icon ${open ? 'open' : ''}">▶</span></td>
+          <td><strong>${escapeHtml(a.symbol)}</strong> ${posIcon}
+            ${priceStr ? `<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">${priceStr}</span>` : ''}
+          </td>
+          <td class="num ${chCls}" style="font-size:12px;font-weight:500;">${chStr}</td>
+          <td>${sentimentBadge(a.sentiment)}</td>
+          <td class="num">${confStr}</td>
+          <td class="num" style="font-size:11px;">${escapeHtml(bestName)}</td>
+          <td class="num ${a.bestStratWinRate == null ? '' : a.bestStratWinRate > 50 ? 'pos' : a.bestStratWinRate < 50 ? 'neg' : ''}">${winRateStr}</td>
+          <td style="font-size:11px;color:var(--text-muted);">${lastTime}</td>
+          <td class="num">${a.entryCount}</td>
+        </tr>
+        <tr class="detail-row ${open ? '' : 'hidden'}">
+          <td colspan="9">
+            <div class="detail-content">${detailHTML(a)}</div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function detailHTML(a) {
+    const t = a.bullCount + a.bearCount + a.neutCount;
+    const bullP = t > 0 ? Math.round(a.bullCount / t * 100) : 0;
+    const bearP = t > 0 ? Math.round(a.bearCount / t * 100) : 0;
+    const neutP = t > 0 ? Math.round(a.neutCount / t * 100) : 0;
+
+    // Research history (latest 8)
+    const rItems = (a.entries || []).slice(0, 8).map(e => `
+      <div class="research-item">
+        <div class="meta">${timeAgo(e.created_at)} · ${sentimentBadge(e.sentiment)} ${e.confidence ? Math.round(e.confidence * 100) + '%' : ''}</div>
+        <div>${escapeHtml(e.title || 'Analysis')}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml((e.summary || '').slice(0, 140))}</div>
+      </div>
+    `).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No research entries.</div>';
+
+    // Top 5 strategies
+    const strats = (a.strategies || []).slice(0, 5).map(s => {
+      const sh = s.sharpe_ratio != null ? Math.min(s.sharpe_ratio, 5.0).toFixed(2) : '—';
+      const wr = s.win_rate != null ? s.win_rate.toFixed(1) + '%' : '—';
+      const ret = s.total_return_pct != null ? (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(1) + '%' : '—';
+      const tf = s.timeframe || '—';
+      const name = (s.strategy_name || '?').replace(/_/g, ' ');
+      return `<div class="strat-row">
+        <span><strong>${escapeHtml(name)}</strong> <span style="color:var(--text-muted);font-size:11px;">${tf}</span></span>
+        <span style="display:flex;gap:12px;">
+          <span class="num">Sharpe: ${sh}</span>
+          <span class="num ${s.win_rate == null ? '' : s.win_rate > 50 ? 'pos' : 'neg'}">WR: ${wr}</span>
+          <span class="num ${s.total_return_pct == null ? '' : s.total_return_pct > 0 ? 'pos' : 'neg'}">Ret: ${ret}</span>
+        </span>
+      </div>`;
+    }).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No strategy results for this pair.</div>';
+
+    const posHtml = a.openPos
+      ? `<div style="font-size:12px;">
+          ${a.openPos.side === 'long' ? '🟢' : '🔴'} ${a.openPos.side.toUpperCase()} ${Number(a.openPos.quantity).toFixed(4)}
+          <span style="color:var(--text-muted);margin-left:8px;">Entry: $${Number(a.openPos.entry_price).toFixed(2)}</span>
+        </div>`
+      : '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No open position.</div>';
+
+    return `
+      <div class="detail-section full">
+        <h4>Consensus</h4>
+        <div style="display:flex;gap:16px;font-size:13px;">
+          <span>🟢 Bullish: <strong>${a.bullCount}</strong> (${bullP}%)</span>
+          <span>🔴 Bearish: <strong>${a.bearCount}</strong> (${bearP}%)</span>
+          <span>⚪ Neutral: <strong>${a.neutCount}</strong> (${neutP}%)</span>
+        </div>
+        ${t > 0 ? `<div class="consensus-bar"><div class="bull" style="width:${bullP}%"></div><div class="neut" style="width:${neutP}%"></div><div class="bear" style="width:${bearP}%"></div></div>` : ''}
+      </div>
+      <div class="detail-section">
+        <h4>Research History (${a.entryCount})</h4>
+        ${rItems}
+      </div>
+      <div class="detail-section">
+        <h4>Top Strategies</h4>
+        ${strats}
+      </div>
+      <div class="detail-section">
+        <h4>Paper Position</h4>
+        ${posHtml}
+      </div>
+      <div class="detail-section">
+        <h4>Quick Facts</h4>
+        <div style="font-size:12px;line-height:1.8;">
+          <div>Latest sentiment: ${sentimentBadge(a.sentiment)}</div>
+          <div>Avg confidence: <strong>${a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—'}</strong></div>
+          <div>Price: <strong>${a.latestPrice != null ? '$' + Number(a.latestPrice).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—'}</strong></div>
+          ${a.bestStrat ? `<div>Best strat: <strong>${escapeHtml((a.bestStrat.strategy_name || '?').replace(/_/g, ' '))}</strong> on ${a.bestStrat.timeframe || '—'}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function updateStats() {
+    document.getElementById('totalCount').innerText = `${aggregated.length} pairs`;
+    document.getElementById('bullCount').innerText = aggregated.filter(a => a.sentiment === 'bullish').length;
+    document.getElementById('bearCount').innerText = aggregated.filter(a => a.sentiment === 'bearish').length;
+    document.getElementById('neutCount').innerText = aggregated.filter(a => a.sentiment === 'neutral').length;
+  }
+
+  // ── Change Timeframe Toggle ──
+  const TF_LABELS = { d1: '1D', w1: '1W', m1: '1M', y1: '1Y' };
+  window.setChangeTf = function(tf) {
+    changeTf = tf;
+    document.querySelectorAll('.tf-btn').forEach(b => {
+      const isActive = b.dataset.tf === tf;
+      b.style.color = isActive ? 'var(--text)' : 'var(--text-muted)';
+      b.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
+    });
+    document.getElementById('changeLabel').textContent = TF_LABELS[tf] || tf.toUpperCase();
+    applyFilters();
+  };
+
+  // ── Expand / Collapse ──
+  window.toggleExpand = function(symbol) {
+    expandedSymbol = expandedSymbol === symbol ? null : symbol;
+    applyFilters();
+  };
+
+  // ── Events ──
+  document.getElementById('searchInput').addEventListener('input', applyFilters);
+  document.getElementById('sentimentFilter').addEventListener('change', applyFilters);
+  document.getElementById('sortSelect').addEventListener('change', applyFilters);
+
+  // ── Start ──
+  loadAll();
+</script>
+</body>
+</html>

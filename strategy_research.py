@@ -394,7 +394,28 @@ class BacktestResult:
     trades: list[Trade] = field(default_factory=list)
 
 
-def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
+def _annual_bars(timeframe: str) -> int:
+    """Approximate number of bars per year for a given timeframe string."""
+    tf = timeframe.lower()
+    if tf == "1d":
+        return 365
+    elif tf == "4h":
+        return 365 * 6   # 6 bars per day
+    elif tf == "1h":
+        return 365 * 24
+    elif tf == "15m":
+        return 365 * 96
+    elif tf == "5m":
+        return 365 * 288
+    elif tf == "1m":
+        return 365 * 1440
+    elif tf == "1w":
+        return 52
+    else:
+        return 365  # safe fallback
+
+
+def backtest(df: pd.DataFrame, signal: pd.Series, timeframe: str = "1d") -> BacktestResult | None:
     """
     Run a simple backtest given OHLCV data and a signal series in {-1, 0, 1}.
     
@@ -405,82 +426,126 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
     - Entry at next bar's open
     - Exit at next bar's open
     - No leverage, no fees
+    
+    Equity curve is computed bar-by-bar with mark-to-market on open positions,
+    so Sharpe is calculated on proper time-series returns (not per-trade blips).
     """
     if df.empty or len(df) < 50:
         return None
 
-    sig = signal.reindex(df.index).fillna(0).astype(int)
+    # Shift signal forward by 1 bar: a signal computed from bar i-1's close
+    # is actionable at bar i's open. Without this shift the backtest would
+    # "see" bar i's close (used by the signal generator) then trade at
+    # the same bar's open — classic lookahead bias.
+    sig = signal.shift(1).reindex(df.index).fillna(0).astype(int)
     close = df["close"]
     open_p = df["open"]
+    n = len(df)
+
+    # Bar-by-bar equity curve (one value per bar)
+    equity = np.full(n, np.nan)
+    equity[0] = 10000.0
 
     position: int = 0
     entry_price: float = 0.0
+    entry_equity: float = 10000.0
     entry_idx: int = 0
     trades: list[Trade] = []
-    equity_curve: list[float] = [10000.0]
 
-    for i in range(1, len(df)):
+    for i in range(1, n):
         sig_now = sig.iloc[i]
-        position_was = position
 
+        # ── Exit / MTM ──
         if position != 0:
             if sig_now != position:
+                # Close at this bar's open
                 exit_p = float(open_p.iloc[i])
                 if position == 1:
-                    pnl_pct = (exit_p - entry_price) / entry_price * 100
+                    pnl_pct = (exit_p - entry_price) / entry_price
                 else:
-                    pnl_pct = (entry_price - exit_p) / entry_price * 100
+                    pnl_pct = (entry_price - exit_p) / entry_price
+                exit_equity = entry_equity * (1 + pnl_pct)
                 trades.append(Trade(
                     entry_time=df.index[entry_idx],
                     exit_time=df.index[i],
                     side="long" if position == 1 else "short",
                     entry_price=float(entry_price),
                     exit_price=exit_p,
-                    pnl_pct=pnl_pct,
+                    pnl_pct=pnl_pct * 100,
                     bars_held=i - entry_idx,
                 ))
-                equity_curve.append(equity_curve[-1] * (1 + pnl_pct / 100))
+                equity[i] = exit_equity
                 position = 0
+                # Fall through to entry check (reversal possible)
+            else:
+                # Same signal — mark to market at close
+                mtm_p = float(close.iloc[i])
+                if position == 1:
+                    mtm_ret = (mtm_p - entry_price) / entry_price
+                else:
+                    mtm_ret = (entry_price - mtm_p) / entry_price
+                equity[i] = entry_equity * (1 + mtm_ret)
+                continue  # already in position, skip entry check
 
-        if position == 0 and sig_now != 0:
-            position = int(sig_now)
-            entry_price = float(open_p.iloc[i])
-            entry_idx = i
+        # ── Entry ──
+        if position == 0:
+            if sig_now != 0:
+                position = int(sig_now)
+                entry_price = float(open_p.iloc[i])
+                entry_equity = equity[i] if not np.isnan(equity[i]) else equity[i-1]
+                entry_idx = i
+                # MTM at close after entry
+                mtm_p = float(close.iloc[i])
+                if position == 1:
+                    mtm_ret = (mtm_p - entry_price) / entry_price
+                else:
+                    mtm_ret = (entry_price - mtm_p) / entry_price
+                equity[i] = entry_equity * (1 + mtm_ret)
+            else:
+                # Flat, no signal
+                equity[i] = equity[i-1]
 
-    # Close any open position at end
+    # ── Close any open position at end ──
     if position != 0:
         exit_p = float(close.iloc[-1])
         if position == 1:
-            pnl_pct = (exit_p - entry_price) / entry_price * 100
+            pnl_pct = (exit_p - entry_price) / entry_price
         else:
-            pnl_pct = (entry_price - exit_p) / entry_price * 100
+            pnl_pct = (entry_price - exit_p) / entry_price
         trades.append(Trade(
             entry_time=df.index[entry_idx],
             exit_time=df.index[-1],
             side="long" if position == 1 else "short",
             entry_price=float(entry_price),
             exit_price=exit_p,
-            pnl_pct=pnl_pct,
-            bars_held=len(df) - 1 - entry_idx,
+            pnl_pct=pnl_pct * 100,
+            bars_held=n - 1 - entry_idx,
         ))
-        equity_curve.append(equity_curve[-1] * (1 + pnl_pct / 100))
+        equity[n - 1] = entry_equity * (1 + pnl_pct)
 
-    if len(trades) < 2:
+    # ── Require minimum trades for statistical relevance ──
+    MIN_TRADES = 30
+    if len(trades) < MIN_TRADES:
         return None
 
-    eq = pd.Series(equity_curve)
+    # ── Compute metrics on bar-by-bar returns ──
+    eq = pd.Series(equity)
     returns = eq.pct_change().dropna()
     total_return = (eq.iloc[-1] / eq.iloc[0] - 1) * 100
 
-    if len(returns) > 1 and returns.std() > 0:
-        sharpe = float(returns.mean() / returns.std() * np.sqrt(365))
+    annual_bars = _annual_bars(timeframe)
+    if len(returns) > 1 and returns.std() > 1e-10:
+        sharpe = float(returns.mean() / returns.std() * np.sqrt(annual_bars))
+        sharpe = min(sharpe, 5.0)  # Hard sanity cap — Sharpe > 5 is not real edge
     else:
         sharpe = 0.0
 
+    # ── Drawdown ──
     peak = eq.expanding().max()
     dd = (eq - peak) / peak * 100
     max_dd = float(dd.min())
 
+    # ── Trade stats ──
     wins = [t for t in trades if t.pnl_pct > 0]
     losses = [t for t in trades if t.pnl_pct <= 0]
     win_rate = len(wins) / len(trades) * 100 if trades else 0
@@ -500,7 +565,7 @@ def backtest(df: pd.DataFrame, signal: pd.Series) -> BacktestResult | None:
         sharpe_ratio=round(sharpe, 3),
         max_drawdown_pct=round(max_dd, 2),
         win_rate=round(win_rate, 1),
-        profit_factor=round(profit_factor, 2) if profit_factor != float("inf") else 999.0,
+        profit_factor=round(profit_factor, 2) if profit_factor != float("inf") else None,
         trade_count=len(trades),
         avg_bars_held=round(avg_held, 1),
         calmar_ratio=round(calmar, 2),
@@ -570,7 +635,7 @@ def run_sweep(
             sig = strategy_def.signal_fn(train_df, params)
         except Exception:
             continue
-        result = backtest(train_df, sig)
+        result = backtest(train_df, sig, timeframe)
         if result is None:
             continue
         result.strategy_name = strategy_def.name
@@ -594,7 +659,7 @@ def run_sweep(
             sig = strategy_def.signal_fn(test_df, tr.params)
         except Exception:
             continue
-        result = backtest(test_df, sig)
+        result = backtest(test_df, sig, timeframe)
         if result is None:
             continue
         result.strategy_name = strategy_def.name
@@ -761,7 +826,7 @@ def export_results_to_supabase(results: list[BacktestResult], supabase: Client, 
             "sharpe_ratio": r.sharpe_ratio,
             "max_drawdown_pct": r.max_drawdown_pct,
             "win_rate": r.win_rate,
-            "profit_factor": r.profit_factor if r.profit_factor != 999.0 else None,
+            "profit_factor": r.profit_factor,  # None when infinite (no losing trades)
             "trade_count": r.trade_count,
             "avg_bars_held": r.avg_bars_held,
             "calmar_ratio": r.calmar_ratio,
