@@ -871,8 +871,11 @@
       });
 
       applyFilters();
-      // Load price changes for all symbols (from OHLCV data)
-      loadPriceChanges();
+      // Load price changes for all symbols (from OHLCV data).
+      // Must complete before the auto-trigger check below to avoid a race:
+      // batchGenerateResearch → loadAll() resets aggregated while the first
+      // loadPriceChanges is still in-flight, writing stale symbol references.
+      await loadPriceChanges();
       // Auto-trigger batch research only if no research exists for any symbol today.
       // Fires at most once per session because subsequent symbols get marked "done" by the insert.
       const todayUtcAuto = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
