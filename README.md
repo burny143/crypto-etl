@@ -1,206 +1,137 @@
-# Crypto Research Dashboard & Trading Platform
+# Trader's Lab
 
-A unified frontend combining **historical crypto OHLCV data** with **AI-powered research**, interactive charting, and paper trading — all built on top of a Supabase-backed ETL pipeline.
+Crypto research, charting, and paper trading terminal — entirely client-side vanilla HTML/JS, backed by Supabase + a Python research engine.
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                 React SPA (Vite)                     │
-│  ┌─────────┐ ┌──────────────────┐ ┌──────────────┐  │
-│  │Indicators│ │  Candlestick     │ │Research +    │  │
-│  │Controls  │ │  Chart (LC)      │ │Trading Panel │  │
-│  └────┬─────┘ └────────┬─────────┘ └──────┬───────┘  │
-│       │                │                  │          │
-│       ▼                ▼                  ▼          │
-│  ┌─────────────────────────────────────────────┐     │
-│  │            Supabase Client (anon key)        │     │
-│  │  crypto_historical  crypto_research symbols  │     │
-│  └─────────────────────┬───────────────────────┘     │
-└────────────────────────┼────────────────────────────┘
-                         │
-              ┌──────────┴──────────┐
-              │  FastAPI Backend     │
-              │  (port 8765)         │
-              │  /api/v1/indicators  │
-              │  /api/v1/paper/*     │
-              │  /api/v1/research/*  │
-              └──────────┬──────────┘
-                         │
-              ┌──────────┴──────────┐
-              │  Supabase (service   │
-              │  role key for writes)│
-              │  indicators table    │
-              │  paper_* tables      │
-              └─────────────────────┘
-```
-
-## Getting Started
-
-### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Access to the Supabase project (already configured)
-
-### 1. Database Migration
-
-Run the V2 migration in Supabase SQL Editor to add new tables:
-- Open https://supabase.com/dashboard/project/ymnlqggxeeyqvrojsrzh/sql/new
-- Copy the contents of `migrations/V2__enhanced_schema.sql`
-- Click RUN
-
-### 2. Backend
+## Quick Start
 
 ```powershell
-cd crypto-etl/backend
-pip install -r requirements.txt
-
-$env:SUPABASE_URL="https://ymnlqggxeeyqvrojsrzh.supabase.co"
-$env:SUPABASE_SERVICE_ROLE_KEY="<your-service-role-key>"
-$env:CORS_ORIGINS="http://localhost:5173"
-
-uvicorn main:app --reload --port 8765
-```
-
-### 3. Frontend
-
-```powershell
-cd crypto-etl/frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:5173 in your browser.
-
-### 4. ETL (Data Loading)
-
-```powershell
-# Current price snapshots
 cd crypto-etl
+python -m http.server 8080
+# Open http://localhost:8080
+```
+
+No build step, no npm install, no backend server. Just serve the static files.
+
+## Pages
+
+| Page | File | What it does |
+|------|------|-------------|
+| **Landing** | `index.html` | Entry point with links to Charts and Research |
+| **Charts** | `charts.html` | Candlestick chart (Lightweight Charts), 12+ indicators, signal builder with buy/sell markers, paper trading panel (long/short, positions, P&L, order history) |
+| **Research** | `research.html` | Cross-pair sentiment consensus, best strategies per symbol, research history, sortable table with expandable detail rows |
+
+## Data Pipeline
+
+```
+CCXT (OKX)  →  historical_etl.py  →  Supabase (crypto_historical)
+CCXT (OKX)  →  etl.py             →  Supabase (crypto_data)            ← GitHub Actions every 30 min
+              strategy_research.py →  Supabase (strategy_results)        ← GitHub Actions weekly
+```
+
+All frontend reads use the **anon key** with Row Level Security (SELECT only). Writes (paper trading, research entries) use the anon key with RLS policies allowing INSERT/UPDATE/DELETE for the appropriate session scope.
+
+## Strategy Research Engine
+
+`strategy_research.py` — 8 strategies with walk-forward validation:
+
+| Strategy | Logic |
+|----------|-------|
+| RSI Reversion | Oversold/overbought mean reversion |
+| MACD Crossover | Signal line cross + histogram confirmation |
+| Bollinger Bands Reversion | Touch of lower/upper band |
+| EMA Crossover | Fast/slow EMA cross |
+| Stochastic RSI | K/D cross with overbought/oversold zones |
+| Keltner Channel Breakout | Close above/below KC + volume confirmation |
+| RSI + ADX Combo | Trend strength filter + RSI entries |
+| RSI + Volume Combo | Volume-weighted RSI extremes |
+
+```powershell
+# Quick run (smaller param grid)
+$env:SUPABASE_URL="https://ymnlqggxeeyqvrojsrzh.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<key>"
+python strategy_research.py --quick
+
+# Full sweep (all 30 symbols × 3 timeframes, takes hours)
+python strategy_research.py
+```
+
+Results export to `strategy_results.csv` and Supabase `strategy_results` table under a `research_runs` run_id.
+
+## Database
+
+Supabase project `ymnlqggxeeyqvrojsrzh` — all migrations in `migrations/`:
+
+| Table | Rows | Purpose |
+|-------|------|---------|
+| `crypto_historical` | ~227k | OHLCV bars (30 symbols × 3 timeframes) |
+| `crypto_data` | ~30 | Current price snapshots (30 min refresh) |
+| `crypto_research` | varies | AI research entries (generated client-side) |
+| `research_runs` | per run | Strategy run metadata |
+| `strategy_results` | per run | Per-variant backtest metrics |
+| `paper_orders` | per trade | Paper trading order history |
+| `paper_positions` | per position | Open positions, live P&L |
+| `paper_equity_curve` | per snapshot | Portfolio value over time |
+
+## Running ETL
+
+```powershell
+cd crypto-etl
+$env:SUPABASE_URL="https://ymnlqggxeeyqvrojsrzh.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<key>"
+
+# Current price snapshot (fast)
 python etl.py
 
-# Historical OHLCV data (years of data, takes a while)
+# Historical data (slow — years of OHLCV per symbol)
 python historical_etl.py
 ```
 
-## Project Structure
+## Key Design Decisions
+
+1. **Vanilla HTML/JS** — no build step, no npm, no framework churn. Just serve and go.
+2. **TradingView Lightweight Charts** — canvas-based, handles thousands of bars smoothly.
+3. **All indicators client-side** — 12 types in vanilla JS. No server dependency, instant response.
+4. **Supabase anon key** — safe with RLS. Service role key is server/script only.
+5. **Run_id scoping** — strategy results are scoped to the latest research run to avoid stale/duplicate displays.
+6. **Paper trading is persistent** — positions and orders survive page reload (stored in Supabase).
+7. **Lookahead bias eliminated** — backtest signals are shifted 1 bar forward so bar `i`'s signal uses bar `i-1`'s close, executable at bar `i`'s open.
+
+## Architecture
+
+The `backend/` (FastAPI) and `frontend/` (React/Vite) directories are **abandoned**. All active development is in the root HTML/JS files and Python ETL scripts.
 
 ```
 crypto-etl/
-├── backend/                    # Python FastAPI service
-│   ├── main.py                 # App entry, CORS, routes
-│   ├── indicators.py           # Technical indicator computation (SMA, EMA, RSI, MACD, BB, VWAP)
-│   ├── paper_trading.py        # Paper trading engine (orders, positions, P&L)
-│   ├── research.py             # AI research endpoints + technical analysis
-│   └── requirements.txt
-├── frontend/                   # React + Vite + TypeScript SPA
-│   ├── src/
-│   │   ├── App.tsx             # Main layout (3-column: indicators | chart | research+trading)
-│   │   ├── main.tsx
-│   │   ├── index.css           # Tailwind + custom component classes
-│   │   ├── types/index.ts      # TypeScript types + indicator definitions
-│   │   ├── lib/
-│   │   │   ├── supabase.ts     # Supabase client (anon key, read-only)
-│   │   │   └── api.ts          # Backend API client
-│   │   ├── stores/
-│   │   │   └── tradeStore.ts   # Zustand store (single source of truth)
-│   │   └── components/
-│   │       ├── layout/TopBar.tsx         # Symbol + timeframe + refresh
-│   │       ├── chart/CandlestickChart.tsx # TradingView Lightweight Charts
-│   │       ├── research/ResearchPanel.tsx # AI insights + technical analysis
-│   │       ├── indicators/IndicatorControls.tsx # Toggle/configure indicators
-│   │       └── trading/
-│   │           ├── OrderForm.tsx           # Place paper trades
-│   │           └── PositionsTable.tsx       # Positions + portfolio summary
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── tsconfig.json
-│   ├── tailwind.config.js
-│   └── postcss.config.js
-├── migrations/
-│   └── V2__enhanced_schema.sql # New tables (indicators, paper trading, symbols, ETL metadata)
-├── etl.py                       # Current price snapshot ETL (existing)
-├── historical_etl.py            # Historical OHLCV ETL (existing)
-├── index.html                   # Original dashboard (kept for reference)
-├── setup.ps1                    # Supabase setup (existing)
-├── supabase_migration.sql       # Base migration (existing)
-├── AGENTS.md                    # AI agent conventions
-├── .env.example                 # Environment template
-└── README.md                    # This file
+├── index.html              # Landing page
+├── charts.html             # Charting terminal (primary UI)
+├── research.html           # Research dashboard
+├── strategy_research.py    # Strategy engine (8 strategies, walk-forward)
+├── etl.py                  # Current price snapshots
+├── historical_etl.py       # Historical OHLCV fetch (CCXT)
+├── setup.ps1               # Supabase project setup
+├── migrations/             # SQL migrations (V2–V7)
+│   ├── V2__enhanced_schema.sql
+│   ├── V3__crypto_research.sql
+│   ├── V4__paper_trading.sql
+│   ├── V5__strategy_results.sql
+│   ├── V6__walk_forward.sql
+│   └── V7__paper_trading_session_id.sql
+├── strategy_results.csv    # Latest engine output
+├── AGENTS.md               # AI agent project conventions
+├── .env.example
+└── docs/
+    ├── architecture/       # Data flow diagrams
+    ├── data-contracts/     # Research, strategy, signal contracts
+    ├── decisions/          # Architecture Decision Records
+    └── research/           # Strategy methodology
 ```
 
-## Database Schema
+## Supabase Key Rules
 
-### Existing Tables (managed by ETL)
-| Table | Purpose |
-|---|---|
-| `crypto_data` | Current price snapshots (updated every few minutes by ETL) |
-| `crypto_historical` | OHLCV bars — the primary data source for charts |
-| `crypto_research` | AI research entries from the vibe-trading agent |
+| Key | Type | Where used |
+|-----|------|------------|
+| `SUPABASE_URL` | Public URL | Everywhere |
+| Anon key | Publishable | Frontend HTML (RLS-protected) |
+| Service role key | Secret | Python scripts only (ETL, research engine) |
 
-### New Tables (V2 migration)
-| Table | Purpose |
-|---|---|
-| `symbols` | Symbol registry with display names, sort order, active flag |
-| `indicators` | Pre-computed technical indicators (cached, keyed by symbol+tf+name+params) |
-| `paper_orders` | Paper trading order history |
-| `paper_positions` | Current open positions (one per symbol+side) |
-| `paper_equity_curve` | Portfolio value snapshots over time |
-| `etl_metadata` | ETL run tracking (earliest/latest bar per symbol+tf) |
-
-### Performance Optimizations
-- Indexes on (symbol, timeframe, datetime) for range queries
-- Unique constraints on (symbol, timeframe, datetime, indicator_name, param_hash) for idempotent upserts
-- RLS policies allow public SELECT on all tables (matching the existing pattern)
-- Write access restricted to service_role key (backend-only)
-
-## API Endpoints
-
-All under `http://localhost:8765/api/v1/`:
-
-### Indicators
-- `GET /indicators/{symbol}/{timeframe}/{name}?period=20` — Get indicator (cached; add `?force_recompute=true` to recompute)
-- `POST /indicators/batch` — Compute multiple indicators at once
-
-### Research
-- `GET /research/{symbol}` — Get AI research entries for a symbol
-- `GET /research/recent` — Get recent research across all symbols
-- `GET /research/analysis/{symbol}/{timeframe}` — Get technical analysis summary
-
-### Paper Trading
-- `POST /paper/orders` — Place a market/limit/stop order
-- `POST /paper/close` — Close all or part of a position
-- `GET /paper/positions` — Get open positions with current P&L
-- `GET /paper/orders?symbol=X` — Get order history
-- `GET /paper/portfolio` — Get portfolio summary
-- `GET /paper/equity` — Get equity curve
-- `POST /paper/reset` — Reset paper account
-
-### System
-- `GET /health` — Health check
-
-## Key Design Decisions
-
-1. **Charting**: TradingView Lightweight Charts — lightweight, canvas-based, handles 500+ bars smoothly
-2. **State Management**: Zustand — minimal boilerplate, no providers needed, works well for this scope
-3. **Indicator Computation**: Server-side via pandas/numpy with Supabase caching — avoids re-computation on every page load
-4. **Data Loading**: Supabase REST queries with ascending/descending order and limit — efficient for range-based chart views
-5. **Paper Trading**: Server-side engine with Supabase persistence — P&L calculations are consistent even across page reloads
-6. **Research**: Backend generates technical analysis from OHLCV stats; extensible for LLM integration following vibe-trading patterns
-7. **No TA-Lib Required**: All indicators implemented in pure pandas/numpy for zero compilation dependencies
-
-## Extending with AI Research (vibe-trading integration)
-
-The research endpoint at `/api/v1/research/analysis/{symbol}/{timeframe}` currently generates analysis from statistical data. To add LLM-powered research:
-
-1. Add an LLM client in `backend/research.py` (OpenAI, Anthropic, or any LangChain-compatible provider)
-2. Create a prompt template that feeds OHLCV stats + computed indicators to the LLM
-3. Parse the response and store it in the `crypto_research` table
-4. The frontend ResearchPanel will automatically display new entries
-
-## Notes
-
-- **vibe-trading/** is never modified — all new code lives in `crypto-etl/`
-- The Supabase anon key is embedded in the frontend (safe — RLS restricts to SELECT)
-- The service_role key is backend-only
-- For production deployment, add authentication and rate limiting to the backend
+Never hard-code the service role key in frontend code. Never log or print it.
