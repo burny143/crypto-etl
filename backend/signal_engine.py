@@ -289,19 +289,37 @@ def rsi_overbought_signal(
     )
 
 
+def _ema_diff(close: pd.Series, fast: int, slow: int) -> pd.Series:
+    """Return EMA(fast) - EMA(slow) — positive when fast > slow (uptrend)."""
+    return _compute_ema(close, fast) - _compute_ema(close, slow)
+
+
+# Register derived indicator for EMA crossover
+INDICATOR_COMPUTERS["ema_diff"] = lambda df, p: _ema_diff(
+    df["close"], p.get("fast", 12), p.get("slow", 26)
+)
+
+
 def trend_follow_signal(
     ema_fast: int = 12, ema_slow: int = 26, adx_period: int = 14, adx_threshold: float = 25
 ) -> SignalEngine:
     """Trend follow: EMA fast > slow AND ADX > threshold (long);
     EMA fast < slow AND ADX > threshold (short).
 
-    Note: this uses multi-condition logic (logic=all within each side)
-    but is limited by the flat condition list. For true crossover logic
-    use the trend_follow_signal_v2 which uses a custom matcher.
+    Uses a registered ``ema_diff`` indicator (fast - slow) for crossover
+    detection, combined with ADX for trend-strength confirmation.
+    Both conditions must fire on the same side (logic="all").
     """
     return SignalEngine(
         conditions=[
-            SignalCondition("ema", {"period": ema_fast}, operator="gt", value=1, side="long"),  # placeholder - see v2
+            # Long: EMA fast > EMA slow  (diff > 0)
+            SignalCondition("ema_diff", {"fast": ema_fast, "slow": ema_slow}, operator="gt", value=0, side="long"),
+            # Long: ADX > threshold (confirms trending regime)
+            SignalCondition("adx", {"period": adx_period}, operator="gt", value=adx_threshold, side="long"),
+            # Short: EMA fast < EMA slow  (diff < 0)
+            SignalCondition("ema_diff", {"fast": ema_fast, "slow": ema_slow}, operator="lt", value=0, side="short"),
+            # Short: ADX > threshold
+            SignalCondition("adx", {"period": adx_period}, operator="gt", value=adx_threshold, side="short"),
         ],
-        logic="any",
+        logic="all",
     )

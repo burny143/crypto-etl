@@ -87,35 +87,76 @@ def _get_current_price(supabase: Client, symbol: str) -> float | None:
         )
         if resp.data and len(resp.data) > 0:
             return float(resp.data[0]["current_price"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to fetch price for {symbol}: {e}")
     return None
 
 
+def _get_current_cash(supabase: Client) -> float:
+    """Read the latest cash balance from the equity curve.
+
+    Returns INITIAL_CAPITAL if no snapshots exist yet.
+    """
+    try:
+        resp = (
+            supabase.table("paper_equity_curve")
+            .select("cash")
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if resp.data and len(resp.data) > 0:
+            return float(resp.data[0]["cash"])
+    except Exception as e:
+        logger.warning(f"Failed to fetch current cash: {e}")
+    return INITIAL_CAPITAL
+
+
 def _get_equity(supabase: Client) -> PortfolioSummary:
-    """Calculate current portfolio summary."""
+    """Calculate current portfolio summary.
+
+    ``cash`` is read from the latest equity-curve snapshot.
+    ``total_realized_pnl`` is computed by summing ``pnl`` from closed
+    orders (paper_orders where metadata->>action = 'close') rather than
+    reading paper_positions.realized_pnl (which is never updated).
+    """
     try:
         positions_resp = (
             supabase.table("paper_positions")
             .select("*")
             .execute()
         )
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch positions: {e}")
         positions_resp = type("R", (), {"data": []})()
 
     positions = positions_resp.data or []
     total_unrealized = 0.0
-    total_realized = 0.0
     margin_used = 0.0
 
     for pos in positions:
-        total_realized += float(pos.get("realized_pnl", 0))
         if pos.get("unrealized_pnl") is not None:
             total_unrealized += float(pos["unrealized_pnl"])
         if pos.get("entry_price") and pos.get("quantity"):
             margin_used += float(pos["entry_price"]) * abs(float(pos["quantity"])) * 0.5  # 50% margin
 
-    # Get cash balance from equity curve (latest)
+    # Realized P&L: sum of pnl from closed orders, not dead positions.realized_pnl column
+    total_realized = 0.0
+    try:
+        closed_resp = (
+            supabase.table("paper_orders")
+            .select("pnl")
+            .filter("metadata", "cs", '{"action":"close"}')
+            .execute()
+        )
+        if closed_resp.data:
+            total_realized = sum(
+                float(o["pnl"]) for o in closed_resp.data if o.get("pnl") is not None
+            )
+    except Exception as e:
+        logger.warning(f"Failed to sum realized P&L from orders: {e}")
+
+    # Cash balance from equity-curve snapshots (updated by place/close)
     cash = INITIAL_CAPITAL
     try:
         cash_resp = (
@@ -127,30 +168,37 @@ def _get_equity(supabase: Client) -> PortfolioSummary:
         )
         if cash_resp.data and len(cash_resp.data) > 0:
             cash = float(cash_resp.data[0]["cash"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to fetch cash from equity curve: {e}")
 
     total_equity = cash + total_unrealized
 
     return PortfolioSummary(
-        cash=cash,
-        total_equity=total_equity,
-        margin_used=margin_used,
+        cash=round(cash, 2),
+        total_equity=round(total_equity, 2),
+        margin_used=round(margin_used, 2),
         open_positions=len(positions),
-        total_realized_pnl=total_realized,
-        total_unrealized_pnl=total_unrealized,
+        total_realized_pnl=round(total_realized, 2),
+        total_unrealized_pnl=round(total_unrealized, 2),
     )
 
 
-def _snapshot_equity(supabase: Client):
-    """Record an equity curve snapshot."""
+def _snapshot_equity(supabase: Client, cash_override: float | None = None):
+    """Record an equity-curve snapshot.
+
+    If *cash_override* is provided it is used as the cash balance
+    (e.g. after deducting an order cost or crediting closed P&L);
+    otherwise cash is read from the previous snapshot.
+    """
     summary = _get_equity(supabase)
+    cash = cash_override if cash_override is not None else summary.cash
+    total_equity = cash + summary.total_unrealized_pnl
     try:
         supabase.table("paper_equity_curve").insert({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "equity": summary.total_equity,
-            "cash": summary.cash,
-            "margin_used": summary.margin_used,
+            "equity": round(total_equity, 2),
+            "cash": round(cash, 2),
+            "margin_used": round(summary.margin_used, 2),
         }).execute()
     except Exception as e:
         logger.warning(f"Failed to snapshot equity: {e}")
@@ -165,19 +213,162 @@ async def place_order(
     req: PlaceOrderRequest,
     supabase: Client = Depends(get_supabase),
 ):
-    """Place a paper trade order."""
-    # Get current price for market orders
-    fill_price = req.price
+    """Place a paper trade order.
+
+    ``market`` orders fill at the live price from crypto_data.
+    ``limit`` orders fill only if the current market price has reached
+    the requested level (buy: price <= limit price is a buy opportunity,
+    so the order fills at the better of market and limit; sell: price >=
+    limit price — fills at the better of market and limit).
+    ``stop`` orders fill only if the stop price has been triggered
+    (buy stop: market >= stop; sell stop: market <= stop).
+
+    The notional cost (fill_price × quantity) is deducted from cash on
+    fill. Opposing positions on the same symbol are netted — if a long
+    already exists and a short is opened, the opposite position is reduced
+    first (treated as a flip) rather than allowing both sides to coexist.
+    """
+    # ── Resolve fill price ──
+    current_price = _get_current_price(supabase, req.symbol)
+
     if req.order_type == "market":
-        fill_price = _get_current_price(supabase, req.symbol)
-        if fill_price is None:
+        if current_price is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot get current price for {req.symbol}. "
                 "Run ETL first or provide a limit price.",
             )
+        fill_price = current_price
 
-    # Check if we already have an open position on this symbol+side
+    elif req.order_type == "limit":
+        if req.price is None:
+            raise HTTPException(status_code=400, detail="limit orders require a price")
+        if current_price is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot validate limit order for {req.symbol}. Run ETL first.",
+            )
+        if req.side == "long":
+            # A buy limit fills when the market price DROPS to the limit price
+            if current_price > req.price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Limit buy at {req.price} not filled — market price {current_price} is above limit",
+                )
+        else:
+            # A sell limit fills when the market price RISES to the limit price
+            if current_price < req.price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Limit sell at {req.price} not filled — market price {current_price} is below limit",
+                )
+        fill_price = req.price  # fills at the requested limit price
+
+    elif req.order_type == "stop":
+        if req.stop_price is None:
+            raise HTTPException(status_code=400, detail="stop orders require a stop_price")
+        if current_price is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot validate stop order for {req.symbol}. Run ETL first.",
+            )
+        if req.side == "long":
+            # A buy stop triggers when the market RISES to the stop price
+            if current_price < req.stop_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stop buy at {req.stop_price} not triggered — market price {current_price} is below stop",
+                )
+        else:
+            # A sell stop triggers when the market DROPS to the stop price
+            if current_price > req.stop_price:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Stop sell at {req.stop_price} not triggered — market price {current_price} is above stop",
+                )
+        fill_price = req.stop_price  # fills at the stop price when triggered
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown order type: {req.order_type}")
+
+    original_quantity = req.quantity
+
+    # ── Net opposing positions ──
+    # If there is an open position on the opposite side for the same symbol,
+    # reduce it first (treat as a flip) rather than allowing both sides.
+    opposite_side = "short" if req.side == "long" else "long"
+    try:
+        opp_resp = (
+            supabase.table("paper_positions")
+            .select("*")
+            .eq("symbol", req.symbol)
+            .eq("side", opposite_side)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+    if opp_resp.data and len(opp_resp.data) > 0:
+        opp = opp_resp.data[0]
+        opp_qty = float(opp["quantity"])
+        flip_qty = min(req.quantity, opp_qty)
+        remaining_req = req.quantity - flip_qty
+
+        # Calculate P&L on the flipped portion of the opposite position
+        opp_entry = float(opp["entry_price"])
+        if opposite_side == "long":
+            flip_pnl = (fill_price - opp_entry) * flip_qty
+        else:
+            flip_pnl = (opp_entry - fill_price) * flip_qty
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if flip_qty >= opp_qty:
+            # Close the opposing position entirely
+            try:
+                supabase.table("paper_positions").delete().eq("id", opp["id"]).execute()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
+        else:
+            # Reduce the opposing position
+            try:
+                supabase.table("paper_positions").update({
+                    "quantity": opp_qty - flip_qty,
+                    "current_price": fill_price,
+                    "updated_at": now_iso,
+                }).eq("id", opp["id"]).execute()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Update failed: {e}")
+
+        # Record the flip as a close on the opposing side
+        try:
+            supabase.table("paper_orders").insert({
+                "symbol": req.symbol,
+                "side": opposite_side,
+                "order_type": req.order_type,
+                "quantity": flip_qty,
+                "price": fill_price,
+                "status": "filled",
+                "filled_at": now_iso,
+                "pnl": round(flip_pnl, 2),
+                "metadata": {"action": "close", "flip": True},
+            }).execute()
+        except Exception as e:
+            logger.warning(f"Flip order insert failed (non-fatal): {e}")
+
+        req.quantity = remaining_req  # adjust quantity for the new side
+
+    # ── Cash accounting ──
+    current_cash = _get_current_cash(supabase)
+    cost = fill_price * req.quantity
+    if current_cash < cost:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient cash: have ${current_cash:.2f}, need ${cost:.2f}",
+        )
+    new_cash = current_cash - cost
+
+    # ── Check / create position on this side ──
     try:
         existing = (
             supabase.table("paper_positions")
@@ -212,30 +403,34 @@ async def place_order(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Update failed: {e}")
     else:
-        # Create new position
-        try:
-            supabase.table("paper_positions").insert({
-                "symbol": req.symbol,
-                "side": req.side,
-                "quantity": req.quantity,
-                "entry_price": round(fill_price, 4),
-                "current_price": fill_price,
-                "unrealized_pnl": 0.0,
-                "realized_pnl": 0.0,
-                "opened_at": now_iso,
-                "updated_at": now_iso,
-                "metadata": {},
-            }).execute()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Insert failed: {e}")
+        if req.quantity <= 0:
+            # Entire order was consumed by flipping the opposing position
+            pass
+        else:
+            # Create new position
+            try:
+                supabase.table("paper_positions").insert({
+                    "symbol": req.symbol,
+                    "side": req.side,
+                    "quantity": req.quantity,
+                    "entry_price": round(fill_price, 4),
+                    "current_price": fill_price,
+                    "unrealized_pnl": 0.0,
+                    "realized_pnl": 0.0,
+                    "opened_at": now_iso,
+                    "updated_at": now_iso,
+                    "metadata": {},
+                }).execute()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Insert failed: {e}")
 
-    # Record the order
+    # Record the order (use original quantity for history, not the post-flip adjustment)
     try:
         supabase.table("paper_orders").insert({
             "symbol": req.symbol,
             "side": req.side,
             "order_type": req.order_type,
-            "quantity": req.quantity,
+            "quantity": original_quantity,
             "price": fill_price,
             "stop_price": req.stop_price,
             "status": "filled",
@@ -246,13 +441,13 @@ async def place_order(
     except Exception as e:
         logger.warning(f"Order insert failed (non-fatal): {e}")
 
-    _snapshot_equity(supabase)
+    _snapshot_equity(supabase, cash_override=new_cash)
 
     return {
         "status": "filled",
         "symbol": req.symbol,
         "side": req.side,
-        "quantity": req.quantity,
+        "quantity": original_quantity,
         "fill_price": fill_price,
         "timestamp": now_iso,
     }
@@ -320,6 +515,10 @@ async def close_position(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
+    # ── Cash accounting: add realized P&L back to cash ──
+    current_cash = _get_current_cash(supabase)
+    new_cash = current_cash + pnl
+
     # Record the closing order
     try:
         supabase.table("paper_orders").insert({
@@ -336,7 +535,7 @@ async def close_position(
     except Exception as e:
         logger.warning(f"Close order insert failed (non-fatal): {e}")
 
-    _snapshot_equity(supabase)
+    _snapshot_equity(supabase, cash_override=new_cash)
 
     return {
         "status": "closed",
@@ -360,8 +559,15 @@ async def get_positions(
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
     positions = []
+    # Cache one price fetch per symbol to avoid duplicate lookups
+    price_cache: dict[str, float | None] = {}
+    def _price_for(sym: str) -> float | None:
+        if sym not in price_cache:
+            price_cache[sym] = _get_current_price(supabase, sym)
+        return price_cache[sym]
+
     for pos in resp.data or []:
-        current = _get_current_price(supabase, pos["symbol"])
+        current = _price_for(pos["symbol"])
         entry = float(pos["entry_price"])
         qty = abs(float(pos["quantity"]))
 
@@ -385,9 +591,9 @@ async def get_positions(
             market_value=round(market_value, 2) if market_value else None,
         ))
 
-    # Update unrealized P&L in the database
+    # Update unrealized P&L in the database (use cached prices)
     for pos in resp.data or []:
-        current = _get_current_price(supabase, pos["symbol"])
+        current = _price_for(pos["symbol"])
         if current is None:
             continue
         entry = float(pos["entry_price"])
@@ -402,8 +608,8 @@ async def get_positions(
                 "unrealized_pnl": round(upnl, 2),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", pos["id"]).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to update position {pos.get('id')} P&L: {e}")
 
     return {"positions": positions}
 

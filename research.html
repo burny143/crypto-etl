@@ -89,7 +89,8 @@
     cursor: pointer; user-select: none;
   }
   th:hover { color: var(--text); }
-  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+  th.active-sort { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; display: inline-block; width: 14px; text-align: center; }
   td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
   tr.clickable { cursor: pointer; transition: background 0.15s; }
@@ -208,14 +209,6 @@
       <option value="neutral">Neutral</option>
     </select>
 
-    <label>Sort</label>
-    <select id="sortSelect">
-      <option value="sentiment">Sentiment</option>
-      <option value="change">Change</option>
-      <option value="confidence">Confidence</option>
-      <option value="updated">Last Updated</option>
-      <option value="symbol">Symbol</option>
-    </select>
 
     <div class="stats" id="statsBar">
       <span id="totalCount">—</span>
@@ -244,14 +237,14 @@
       <thead>
         <tr>
           <th style="width:28px"></th>
-          <th>Symbol</th>
-          <th class="num">Change <span id="changeLabel" style="font-size:10px;color:var(--accent);">1D</span></th>
-          <th>Sentiment</th>
-          <th class="num">Confidence</th>
-          <th class="num">Best Strategy</th>
-          <th class="num">Win Rate</th>
-          <th>Last Research</th>
-          <th class="num">Entries</th>
+          <th onclick="setSort('symbol')">Symbol <span class="sort-arrow" data-col="symbol"></span></th>
+          <th class="num" onclick="setSort('change')">Change <span id="changeLabel" style="font-size:10px;color:var(--accent);">1D</span><span class="sort-arrow" data-col="change"></span></th>
+          <th onclick="setSort('sentiment')">Sentiment <span class="sort-arrow" data-col="sentiment"></span></th>
+          <th class="num" onclick="setSort('confidence')">Confidence <span class="sort-arrow" data-col="confidence"></span></th>
+          <th class="num" onclick="setSort('bestStrat')">Best Strat <span class="sort-arrow" data-col="bestStrat"></span></th>
+          <th class="num" onclick="setSort('winRate')">Win Rate <span class="sort-arrow" data-col="winRate"></span></th>
+          <th onclick="setSort('lastResearch')">Last Research <span class="sort-arrow" data-col="lastResearch"></span></th>
+          <th class="num" onclick="setSort('entries')">Entries <span class="sort-arrow" data-col="entries"></span></th>
         </tr>
       </thead>
       <tbody id="tableBody">
@@ -275,7 +268,54 @@
   let changeTf = 'd1';         // 'd1', 'w1', 'm1', 'y1'
   let researchInProgress = false;  // concurrency guard for batchGenerateResearch
 
+  // ── Sort State ──
+  let sortColumn = 'change';
+  let sortDir = 'desc';
+  window.setSort = function(col) {
+    if (sortColumn === col) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortColumn = col;
+      const descDefaults = ['change', 'confidence', 'winRate', 'entries'];
+      sortDir = descDefaults.includes(col) ? 'desc' : 'asc';
+    }
+    applyFilters();
+  };
+
+  // ── Price-Momentum Values (separate from research-derived sentiment/confidence) ──
+  function deriveMomentumValues() {
+    for (const a of aggregated) {
+      const pc = priceChanges[a.symbol] || {};
+      const ch = pc[changeTf];
+      if (ch != null) {
+        // Sentiment from direction (>1% up = bullish, >1% down = bearish)
+        if (ch > 1) a.priceMomentumSentiment = 'bullish';
+        else if (ch < -1) a.priceMomentumSentiment = 'bearish';
+        else a.priceMomentumSentiment = 'neutral';
+        // Confidence from magnitude: bigger move → higher conviction.
+        // Tiered so small differences stay visible across timeframes.
+        const absCh = Math.abs(ch);
+        if (absCh < 0.5) a.priceMomentumConfidence = 0.08;
+        else if (absCh < 1) a.priceMomentumConfidence = 0.15;
+        else if (absCh < 2) a.priceMomentumConfidence = 0.28;
+        else if (absCh < 5) a.priceMomentumConfidence = 0.45;
+        else if (absCh < 10) a.priceMomentumConfidence = 0.60;
+        else if (absCh < 20) a.priceMomentumConfidence = 0.75;
+        else a.priceMomentumConfidence = 0.85;
+      } else {
+        // No price data for this timeframe — only null out momentum fields
+        a.priceMomentumSentiment = null;
+        a.priceMomentumConfidence = null;
+      }
+    }
+  }
+
   // ── Helpers ──
+  function effectiveSentiment(a) {
+    // Display sentiment: price momentum when available, research consensus as fallback
+    return a.priceMomentumSentiment ?? a.sentiment;
+  }
+
   function escapeHtml(str) {
     if (str == null) return '';
     const d = document.createElement('div');
@@ -301,7 +341,7 @@
   }
 
   function sentimentBadge(s) {
-    const label = (s || 'neutral').toLowerCase();
+    const label = escapeHtml((s || 'neutral').toLowerCase());
     return `<span class="badge badge-${label}">${label.toUpperCase()}</span>`;
   }
 
@@ -643,12 +683,12 @@
         let bars = null;
         for (const tf of TIMEFRAMES) {
           const { data, error } = await supabaseClient.from('crypto_historical')
-            .select('timestamp, open, high, low, close, volume')
+            .select('datetime, open, high, low, close, volume')
             .eq('symbol', symbol).eq('timeframe', tf)
-            .order('timestamp', { ascending: false }).limit(250);
+            .order('datetime', { ascending: false }).limit(250);
           if (!error && data && data.length >= 30) {
             data.reverse();
-            bars = data.map(d => ({ time: d.timestamp, open: d.open, high: d.high, low: d.low, close: d.close, value: d.volume }));
+            bars = data.map(d => ({ time: d.datetime, open: d.open, high: d.high, low: d.low, close: d.close, value: d.volume }));
             break;
           }
         }
@@ -714,9 +754,9 @@
           let data = null;
           for (const sv of symbolVariants) {
             const resp = await supabaseClient.from('crypto_historical')
-              .select('close, timestamp')
+              .select('close, datetime')
               .eq('symbol', sv).eq('timeframe', tf)
-              .order('timestamp', { ascending: false }).limit(tf === '1d' ? 370 : tf === '1h' ? 720 : 180);
+              .order('datetime', { ascending: false }).limit(tf === '1d' ? 370 : tf === '1h' ? 720 : 180);
             if (resp.data && resp.data.length >= 2) { data = resp.data; break; }
           }
           if (!data) continue;
@@ -724,7 +764,7 @@
           const findClosest = (targetTs) => {
             const target = Date.parse(targetTs);
             for (const d of data) {
-              const t = Date.parse(d.timestamp);
+              const t = Date.parse(d.datetime);
               if (t <= target) return d.close;
             }
             return null;
@@ -733,7 +773,7 @@
           const day = 86400000;
           const ch = {};
           if (data.length >= 2) {
-            const prev = data.find(d => Date.parse(d.timestamp) <= now - day) || data[data.length - 1];
+            const prev = data.find(d => Date.parse(d.datetime) <= now - day) || data[data.length - 1];
             ch.d1 = prev ? (cur - prev.close) / prev.close * 100 : null;
           }
           if (tf === '1d' && data.length >= 7) {
@@ -757,6 +797,7 @@
       }));
     }
     priceChanges = result;
+    deriveMomentumValues();
     applyFilters();
   }
 
@@ -784,7 +825,7 @@
         latestRunId
           ? supabaseClient.from('strategy_results').select('strategy_name, symbol, timeframe, sharpe_ratio, win_rate, total_return_pct, profit_factor, trade_count').gte('trade_count', 30).eq('run_id', latestRunId).order('sharpe_ratio', { ascending: false })
           : supabaseClient.from('strategy_results').select('strategy_name, symbol, timeframe, sharpe_ratio, win_rate, total_return_pct, profit_factor, trade_count').gte('trade_count', 30).order('sharpe_ratio', { ascending: false }),
-        supabaseClient.from('crypto_data').select('symbol, current_price').order('fetched_at', { ascending: false }),
+        supabaseClient.from('crypto_data').select('symbol, current_price').order('updated_at', { ascending: false }),
         supabaseClient.from('paper_positions').select('symbol, side, quantity, entry_price').eq('session_id', sessionId),
       ]);
 
@@ -876,12 +917,13 @@
       // batchGenerateResearch → loadAll() resets aggregated while the first
       // loadPriceChanges is still in-flight, writing stale symbol references.
       await loadPriceChanges();
-      // Auto-trigger batch research only if no research exists for any symbol today.
-      // Fires at most once per session because subsequent symbols get marked "done" by the insert.
+      // Auto-trigger batch research for symbols that don't have today's research yet.
       const todayUtcAuto = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
       const { data: existingAuto } = await supabaseClient.from('crypto_research')
-        .select('symbol').gte('created_at', todayUtcAuto).limit(1);
-      if (!existingAuto || existingAuto.length === 0) {
+        .select('symbol').gte('created_at', todayUtcAuto);
+      const autoDone = new Set((existingAuto || []).map(r => r.symbol));
+      const autoNeed = aggregated.map(a => a.symbol).filter(s => s && s !== 'UNKNOWN' && !autoDone.has(s));
+      if (autoNeed.length > 0) {
         setTimeout(() => { batchGenerateResearch().catch(e => console.warn('Batch research error:', e)); }, 300);
       }
     } catch(e) {
@@ -898,36 +940,44 @@
   function applyFilters() {
     const search = document.getElementById('searchInput').value.toLowerCase().trim();
     const sentFilter = document.getElementById('sentimentFilter').value;
-    const sortBy = document.getElementById('sortSelect').value;
 
     let filtered = aggregated.filter(a => {
       if (search && !a.symbol.toLowerCase().includes(search)) return false;
-      if (sentFilter !== 'all' && a.sentiment !== sentFilter) return false;
+      if (sentFilter !== 'all' && effectiveSentiment(a) !== sentFilter) return false;
       return true;
     });
 
     filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'symbol': return a.symbol.localeCompare(b.symbol);
-        case 'change': return (priceChanges[b.symbol]?.[changeTf] || 0) - (priceChanges[a.symbol]?.[changeTf] || 0);
-        case 'confidence': return (b.confidence || 0) - (a.confidence || 0);
-        case 'updated': {
+      let cmp = 0;
+      switch (sortColumn) {
+        case 'symbol': cmp = a.symbol.localeCompare(b.symbol); break;
+        case 'change': cmp = (priceChanges[a.symbol]?.[changeTf] || 0) - (priceChanges[b.symbol]?.[changeTf] || 0); break;
+        case 'sentiment': {
+          const order = { bullish: 2, neutral: 1, bearish: 0 };
+          cmp = (order[effectiveSentiment(a)] ?? 1) - (order[effectiveSentiment(b)] ?? 1);
+          break;
+        }
+        case 'confidence': cmp = (a.confidence || 0) - (b.confidence || 0); break;
+        case 'bestStrat': {
+          const na = (a.bestStrat?.strategy_name || '').replace(/_/g, ' ');
+          const nb = (b.bestStrat?.strategy_name || '').replace(/_/g, ' ');
+          cmp = na.localeCompare(nb);
+          break;
+        }
+        case 'winRate': cmp = (a.bestStratWinRate || 0) - (b.bestStratWinRate || 0); break;
+        case 'lastResearch': {
           const aT = a.latestEntry ? new Date(a.latestEntry.created_at).getTime() : 0;
           const bT = b.latestEntry ? new Date(b.latestEntry.created_at).getTime() : 0;
-          return bT - aT;
+          cmp = aT - bT;
+          break;
         }
-        case 'sentiment': {
-          const order = { bullish: 0, neutral: 1, bearish: 2 };
-          // Use hasOwnProperty so bullish (0) doesn't collapse to 1 via || fallback
-          const oa = Object.prototype.hasOwnProperty.call(order, a.sentiment) ? order[a.sentiment] : 1;
-          const ob = Object.prototype.hasOwnProperty.call(order, b.sentiment) ? order[b.sentiment] : 1;
-          return oa - ob;
-        }
-        default: return 0;
+        case 'entries': cmp = a.entryCount - b.entryCount; break;
       }
+      return sortDir === 'desc' ? -cmp : cmp;
     });
 
     renderTable(filtered);
+    updateSortArrows();
     updateStats();
   }
 
@@ -972,7 +1022,7 @@
             ${priceStr ? `<span style="font-size:11px;color:var(--text-muted);margin-left:4px;">${priceStr}</span>` : ''}
           </td>
           <td class="num ${chCls}" style="font-size:12px;font-weight:500;">${chStr}</td>
-          <td>${sentimentBadge(a.sentiment)}</td>
+          <td>${sentimentBadge(a.priceMomentumSentiment ?? a.sentiment)}</td>
           <td class="num">${confStr}</td>
           <td class="num" style="font-size:11px;">${escapeHtml(bestName)}</td>
           <td class="num ${a.bestStratWinRate == null ? '' : a.bestStratWinRate > 50 ? 'pos' : a.bestStratWinRate < 50 ? 'neg' : ''}">${winRateStr}</td>
@@ -1063,9 +1113,22 @@
 
   function updateStats() {
     document.getElementById('totalCount').innerText = `${aggregated.length} pairs`;
-    document.getElementById('bullCount').innerText = aggregated.filter(a => a.sentiment === 'bullish').length;
-    document.getElementById('bearCount').innerText = aggregated.filter(a => a.sentiment === 'bearish').length;
-    document.getElementById('neutCount').innerText = aggregated.filter(a => a.sentiment === 'neutral').length;
+    document.getElementById('bullCount').innerText = aggregated.filter(a => effectiveSentiment(a) === 'bullish').length;
+    document.getElementById('bearCount').innerText = aggregated.filter(a => effectiveSentiment(a) === 'bearish').length;
+    document.getElementById('neutCount').innerText = aggregated.filter(a => effectiveSentiment(a) === 'neutral').length;
+  }
+
+  function updateSortArrows() {
+    document.querySelectorAll('.sort-arrow').forEach(el => {
+      const col = el.dataset.col;
+      if (col === sortColumn) {
+        el.textContent = sortDir === 'asc' ? ' ▲' : ' ▼';
+        el.parentElement.classList.add('active-sort');
+      } else {
+        el.textContent = '';
+        el.parentElement.classList.remove('active-sort');
+      }
+    });
   }
 
   // ── Change Timeframe Toggle ──
@@ -1078,6 +1141,7 @@
       b.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
     });
     document.getElementById('changeLabel').textContent = TF_LABELS[tf] || tf.toUpperCase();
+    deriveMomentumValues();
     applyFilters();
   };
 
@@ -1090,7 +1154,6 @@
   // ── Events ──
   document.getElementById('searchInput').addEventListener('input', applyFilters);
   document.getElementById('sentimentFilter').addEventListener('change', applyFilters);
-  document.getElementById('sortSelect').addEventListener('change', applyFilters);
 
   // ── Start ──
   loadAll();
