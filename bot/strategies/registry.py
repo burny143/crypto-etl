@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from bot.strategies.base import AbstractStrategy
+from bot.strategies.breakout_hunter import BreakoutHunterStrategy
 from bot.strategies.rsi import RsiReversionStrategy
 
 
@@ -12,6 +13,7 @@ class StrategyRegistry:
     Pre-registered strategies (added by ``register_defaults()``):
 
     - ``rsi_reversion`` → ``RsiReversionStrategy``
+    - ``breakout_hunter`` → ``BreakoutHunterStrategy``
     """
 
     def __init__(self) -> None:
@@ -45,3 +47,4 @@ class StrategyRegistry:
     def register_defaults(self) -> None:
         """Register all shipped strategies with default parameters."""
         self.register(RsiReversionStrategy())
+        self.register(BreakoutHunterStrategy())

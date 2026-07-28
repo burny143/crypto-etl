@@ -251,7 +251,8 @@ class TestStrategyRegistry:
         registry = StrategyRegistry()
         registry.register_defaults()
         assert "rsi_reversion" in registry
-        assert len(registry.available) == 1
+        assert "breakout_hunter" in registry
+        assert len(registry.available) == 2
 
     def test_available_and_ids(self) -> None:
         registry = StrategyRegistry()
