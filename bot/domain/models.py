@@ -6,10 +6,10 @@ All monetary values use Decimal. All timestamps are timezone-aware UTC.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import NewType
+from typing import Any, NewType
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -55,6 +55,16 @@ class OrderStatus(str, enum.Enum):
     FILLED = "filled"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+
+
+class SignalAction(str, enum.Enum):
+    """Possible strategy recommendations."""
+
+    HOLD = "hold"
+    ENTER_LONG = "enter_long"
+    ENTER_SHORT = "enter_short"
+    EXIT_LONG = "exit_long"
+    EXIT_SHORT = "exit_short"
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +131,25 @@ class MarketQuote:
         from bot.domain.utc import utc_now
 
         return (utc_now() - self.updated_at).total_seconds()
+
+
+@dataclass(frozen=True)
+class Signal:
+    """Output of a strategy evaluation — a recommendation with traceability.
+
+    The ``decision_key`` is a deterministic hash of
+    ``(strategy_id, symbol, timeframe, candle_timestamp)`` for idempotent
+    order creation.
+    """
+
+    symbol: Symbol
+    timeframe: Timeframe
+    strategy_id: str
+    action: SignalAction
+    confidence: float  # 0.0 to 1.0
+    candle_timestamp: datetime  # the bar that triggered this signal
+    decision_key: str  # deterministic hash for dedup
+    params: dict[str, Any] = field(default_factory=dict)  # strategy params snapshot
 
 
 # ---------------------------------------------------------------------------

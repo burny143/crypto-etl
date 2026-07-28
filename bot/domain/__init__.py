@@ -19,6 +19,8 @@ from bot.domain.models import (
     OHLCVBar,
     OrderStatus,
     Side,
+    Signal,
+    SignalAction,
     Symbol,
     Timeframe,
 )
@@ -37,6 +39,8 @@ __all__ = [
     "Candle",
     "MarketQuote",
     "OHLCVBar",
+    "Signal",
+    "SignalAction",
     "Symbol",
     "Timeframe",
     "Side",
