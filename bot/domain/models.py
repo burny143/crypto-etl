@@ -134,6 +134,72 @@ class MarketQuote:
 
 
 @dataclass(frozen=True)
+class OrderIntent:
+    """What a strategy wants to do — before risk checks."""
+
+    symbol: Symbol
+    side: Side
+    quantity: Decimal
+    signal: Signal  # originating signal for traceability
+
+
+@dataclass(frozen=True)
+class RiskDecision:
+    """Result of pre-trade risk validation."""
+
+    approved: bool
+    reason: str = ""
+    max_quantity: Decimal | None = None  # partial approval
+
+
+@dataclass
+class PaperOrder:
+    """A persisted paper order with mutable lifecycle state."""
+
+    symbol: Symbol
+    side: Side
+    quantity: Decimal
+    order_type: str = "market"
+    price: Decimal | None = None  # fill price
+    status: OrderStatus = OrderStatus.FILLED
+    decision_key: str = ""
+    strategy_id: str = ""
+    signal_timestamp: datetime | None = None
+    reason: str = ""
+    id: int | None = None  # DB-assigned
+    opened_at: datetime | None = None
+    filled_at: datetime | None = None
+    closed_at: datetime | None = None
+    pnl: Decimal | None = None  # realized PnL (only when closed)
+
+
+@dataclass
+class PaperPosition:
+    """An open paper position (mutable — P&L updates live)."""
+
+    symbol: Symbol
+    side: Side
+    quantity: Decimal
+    entry_price: Decimal
+    strategy_id: str = ""
+    id: int | None = None  # DB-assigned
+    opened_at: datetime | None = None
+    current_price: Decimal | None = None
+    unrealized_pnl: Decimal | None = None
+    realized_pnl: Decimal = Decimal("0")
+
+
+@dataclass
+class PortfolioSnapshot:
+    """Point-in-time portfolio state."""
+
+    timestamp: datetime
+    cash: Decimal
+    equity: Decimal
+    margin_used: Decimal = Decimal("0")
+
+
+@dataclass(frozen=True)
 class Signal:
     """Output of a strategy evaluation — a recommendation with traceability.
 
