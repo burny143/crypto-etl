@@ -14,25 +14,25 @@ from bot.domain.exceptions import (
 from bot.domain.models import (
     Candle,
     MarketQuote,
+    OrderStatus,
     Side,
     Symbol,
     Timeframe,
-    OrderStatus,
 )
 from bot.domain.utc import (
-    ensure_utc,
     assert_utc,
+    candle_close_time,
+    candle_open_time,
+    ensure_utc,
+    is_completed_candle,
     to_decimal,
     utc_now,
-    candle_open_time,
-    candle_close_time,
-    is_completed_candle,
 )
-
 
 # ===========================================================================
 # Timeframe
 # ===========================================================================
+
 
 class TestTimeframe:
     def test_minutes(self) -> None:
@@ -53,6 +53,7 @@ class TestTimeframe:
 # ===========================================================================
 # Candle
 # ===========================================================================
+
 
 class TestCandle:
     def test_valid_candle(self) -> None:
@@ -132,6 +133,7 @@ class TestCandle:
 # MarketQuote
 # ===========================================================================
 
+
 class TestMarketQuote:
     def test_age_seconds_zero(self) -> None:
         now = utc_now()
@@ -144,6 +146,7 @@ class TestMarketQuote:
 
     def test_age_seconds_positive(self) -> None:
         from datetime import timedelta
+
         old = utc_now() - timedelta(seconds=60)
         q = MarketQuote(
             symbol=Symbol("ETH-USDT"),
@@ -167,6 +170,7 @@ class TestMarketQuote:
 # Side
 # ===========================================================================
 
+
 class TestSide:
     def test_values(self) -> None:
         assert Side.LONG.value == "long"
@@ -176,6 +180,7 @@ class TestSide:
 # ===========================================================================
 # OrderStatus
 # ===========================================================================
+
 
 class TestOrderStatus:
     def test_values(self) -> None:
@@ -187,6 +192,7 @@ class TestOrderStatus:
 # ===========================================================================
 # UTC utilities
 # ===========================================================================
+
 
 class TestEnsureUTC:
     def test_naive_dt(self) -> None:
@@ -202,6 +208,7 @@ class TestEnsureUTC:
 
     def test_aware_non_utc(self) -> None:
         from datetime import timedelta
+
         est = timezone(timedelta(hours=-5))
         dt = datetime(2026, 1, 1, 7, 0, 0, tzinfo=est)
         converted = ensure_utc(dt)
@@ -277,6 +284,7 @@ class TestCandleTimeHelpers:
         # A candle that just closed (within grace)
         recent_open = now.replace(second=0, microsecond=0)
         from datetime import timedelta
+
         recent_open = recent_open - timedelta(hours=1, seconds=15)
         assert is_completed_candle(recent_open, 60, now=now, grace_seconds=30) is True
 

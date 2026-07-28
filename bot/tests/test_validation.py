@@ -2,39 +2,37 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
 from bot.data.validation import (
-    validate_candle,
-    validate_candles,
-    normalize_candles,
     check_freshness,
     check_warmup,
+    normalize_candles,
+    validate_candle,
+    validate_candles,
 )
 from bot.domain.exceptions import (
-    ValidationError,
-    MissingFieldError,
-    OHLCInconsistencyError,
     DuplicateTimestampError,
     FutureTimestampError,
-    StaleDataError,
     InsufficientDataError,
+    MissingFieldError,
+    OHLCInconsistencyError,
+    StaleDataError,
+    ValidationError,
 )
 from bot.domain.models import (
     Candle,
     MarketQuote,
     Symbol,
-    Timeframe,
 )
-from bot.domain.utc import utc_now, ensure_utc
-
+from bot.domain.utc import utc_now
 
 # ===========================================================================
 # validate_candle
 # ===========================================================================
+
 
 class TestValidateCandle:
     def test_valid_candle(self) -> None:
@@ -178,6 +176,7 @@ class TestValidateCandle:
 
     def test_future_timestamp(self) -> None:
         from datetime import timedelta
+
         future = utc_now() + timedelta(days=365)
         row = {
             "symbol": "BTC-USDT",
@@ -210,6 +209,7 @@ class TestValidateCandle:
 # ===========================================================================
 # validate_candles (batch)
 # ===========================================================================
+
 
 class TestValidateCandles:
     def test_valid_batch(self, sample_ohlcv) -> None:
@@ -285,6 +285,7 @@ class TestValidateCandles:
 # check_freshness
 # ===========================================================================
 
+
 class TestCheckFreshness:
     def test_fresh_quote(self) -> None:
         q = MarketQuote(
@@ -297,6 +298,7 @@ class TestCheckFreshness:
 
     def test_stale_quote(self) -> None:
         from datetime import timedelta
+
         old = utc_now() - timedelta(seconds=300)
         q = MarketQuote(
             symbol=Symbol("BTC-USDT"),
@@ -310,6 +312,7 @@ class TestCheckFreshness:
 # ===========================================================================
 # check_warmup
 # ===========================================================================
+
 
 class TestCheckWarmup:
     def test_sufficient_data(self, sample_ohlcv) -> None:
@@ -325,6 +328,7 @@ class TestCheckWarmup:
 # ===========================================================================
 # normalize_candles (convenience wrapper)
 # ===========================================================================
+
 
 class TestNormalizeCandles:
     def test_basic(self, sample_ohlcv) -> None:

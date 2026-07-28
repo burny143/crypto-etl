@@ -6,11 +6,10 @@ All monetary values use Decimal. All timestamps are timezone-aware UTC.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import NewType
-
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -23,6 +22,7 @@ Symbol = NewType("Symbol", str)
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class Timeframe(str, enum.Enum):
     """Supported bar intervals."""
@@ -61,6 +61,7 @@ class OrderStatus(str, enum.Enum):
 # Core data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Candle:
     """A single OHLCV bar.
@@ -89,6 +90,7 @@ class Candle:
     def close_time(self) -> datetime:
         """Bar close time = open time + interval."""
         from bot.domain.utc import candle_close_time
+
         return candle_close_time(self.datetime, self.timeframe.minutes)
 
     @property
@@ -117,6 +119,7 @@ class MarketQuote:
     def age_seconds(self) -> float:
         """Seconds since this quote was recorded."""
         from bot.domain.utc import utc_now
+
         return (utc_now() - self.updated_at).total_seconds()
 
 
@@ -124,26 +127,29 @@ class MarketQuote:
 # Validation helpers
 # ---------------------------------------------------------------------------
 
-REQUIRED_CANDLE_FIELDS = ["symbol", "timeframe", "datetime",
-                          "open", "high", "low", "close", "volume"]
+REQUIRED_CANDLE_FIELDS = [
+    "symbol",
+    "timeframe",
+    "datetime",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+]
 
 
-def _validate_ohlc(open_: Decimal, high: Decimal,
-                    low: Decimal, close: Decimal) -> None:
+def _validate_ohlc(open_: Decimal, high: Decimal, low: Decimal, close: Decimal) -> None:
     """Raise ``OHLCInconsistencyError`` if OHLC pricing is impossible."""
     from bot.domain.exceptions import OHLCInconsistencyError
+
     if high < low:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < low ({low})")
+        raise OHLCInconsistencyError(f"high ({high}) < low ({low})")
     if high < open_:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < open ({open_})")
+        raise OHLCInconsistencyError(f"high ({high}) < open ({open_})")
     if high < close:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < close ({close})")
+        raise OHLCInconsistencyError(f"high ({high}) < close ({close})")
     if low > open_:
-        raise OHLCInconsistencyError(
-            f"low ({low}) > open ({open_})")
+        raise OHLCInconsistencyError(f"low ({low}) > open ({open_})")
     if low > close:
-        raise OHLCInconsistencyError(
-            f"low ({low}) > close ({close})")
+        raise OHLCInconsistencyError(f"low ({low}) > close ({close})")

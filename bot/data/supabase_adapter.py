@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from supabase import Client
 
@@ -27,8 +27,9 @@ class SupabaseMarketData(MarketDataProvider):
     # OHLCV
     # ------------------------------------------------------------------
 
-    def fetch_ohlcv(self, symbol: Symbol, timeframe: Timeframe,
-                    lookback: int = 200) -> Sequence[Candle]:
+    def fetch_ohlcv(
+        self, symbol: Symbol, timeframe: Timeframe, lookback: int = 200
+    ) -> Sequence[Candle]:
         """Fetch the most recent *lookback* OHLCV bars from Supabase.
 
         Queries ``crypto_historical`` ordered by datetime descending, takes
@@ -45,13 +46,11 @@ class SupabaseMarketData(MarketDataProvider):
                 .execute()
             )
         except Exception as exc:
-            raise DataError(
-                f"Supabase query failed for {symbol} {timeframe.value}: {exc}") from exc
+            raise DataError(f"Supabase query failed for {symbol} {timeframe.value}: {exc}") from exc
 
         raw_rows = resp.data if resp.data else []
         if not raw_rows:
-            raise InsufficientDataError(
-                f"No OHLCV data for {symbol} {timeframe.value}")
+            raise InsufficientDataError(f"No OHLCV data for {symbol} {timeframe.value}")
 
         # Reverse to chronological order
         raw_rows.reverse()
@@ -81,8 +80,7 @@ class SupabaseMarketData(MarketDataProvider):
                 .execute()
             )
         except Exception as exc:
-            raise DataError(
-                f"Supabase quote query failed for {symbol}: {exc}") from exc
+            raise DataError(f"Supabase quote query failed for {symbol}: {exc}") from exc
 
         if not resp.data or len(resp.data) == 0:
             return None
@@ -92,8 +90,7 @@ class SupabaseMarketData(MarketDataProvider):
         if price is None:
             return None
 
-        updated_at = ensure_utc(
-            _parse_ts(row.get("updated_at"))) or utc_now()
+        updated_at = ensure_utc(_parse_ts(row.get("updated_at"))) or utc_now()
 
         return MarketQuote(
             symbol=symbol,
@@ -105,6 +102,7 @@ class SupabaseMarketData(MarketDataProvider):
 def _parse_ts(value: object) -> object:
     """Parse a Supabase timestamp into a datetime if possible."""
     from datetime import datetime
+
     if isinstance(value, datetime):
         return value
     if isinstance(value, str):

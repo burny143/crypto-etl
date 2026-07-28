@@ -2,31 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
-from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any
 
 from bot.domain.exceptions import (
-    ValidationError,
-    MissingFieldError,
-    OHLCInconsistencyError,
     DuplicateTimestampError,
     FutureTimestampError,
-    StaleDataError,
     InsufficientDataError,
+    MissingFieldError,
+    OHLCInconsistencyError,
+    StaleDataError,
+    ValidationError,
 )
 from bot.domain.models import (
     Candle,
     MarketQuote,
     Symbol,
     Timeframe,
-    REQUIRED_CANDLE_FIELDS,
 )
 from bot.domain.utc import ensure_utc, to_decimal, utc_now
 
 # ---------------------------------------------------------------------------
 # Individual candle validation
 # ---------------------------------------------------------------------------
+
 
 def validate_candle(raw: dict[str, Any]) -> Candle:
     """Parse and validate a raw dictionary as a ``Candle``.
@@ -35,11 +36,9 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
     OHLC consistency, UTC normalisation, and Decimal conversion.
     """
     # Required fields
-    for field in ("symbol", "timeframe", "datetime",
-                  "open", "high", "low", "close", "volume"):
+    for field in ("symbol", "timeframe", "datetime", "open", "high", "low", "close", "volume"):
         if field not in raw or raw[field] is None:
-            raise MissingFieldError(
-                f"Candle missing required field: {field!r}")
+            raise MissingFieldError(f"Candle missing required field: {field!r}")
 
     symbol = Symbol(str(raw["symbol"]).upper())
 
@@ -47,8 +46,7 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
     try:
         timeframe = Timeframe(tf_raw)
     except ValueError:
-        raise ValidationError(
-            f"Unsupported timeframe {tf_raw!r} (must be 1h, 4h, or 1d)")
+        raise ValidationError(f"Unsupported timeframe {tf_raw!r} (must be 1h, 4h, or 1d)") from None
 
     dt_raw = raw["datetime"]
     dt: datetime | None = None
@@ -57,8 +55,7 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
     elif isinstance(dt_raw, str):
         dt = ensure_utc(datetime.fromisoformat(dt_raw.replace("Z", "+00:00")))
     else:
-        raise ValidationError(
-            f"datetime must be a string or datetime, got {type(dt_raw).__name__}")
+        raise ValidationError(f"datetime must be a string or datetime, got {type(dt_raw).__name__}")
     if dt is None:
         raise ValidationError("datetime could not be parsed")
 
@@ -66,7 +63,8 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
     now = utc_now()
     if dt > now:
         raise FutureTimestampError(
-            f"Candle datetime {dt.isoformat()} is in the future (now={now.isoformat()})")
+            f"Candle datetime {dt.isoformat()} is in the future (now={now.isoformat()})"
+        )
 
     # Convert to Decimal, catching non-finite
     def _dec(val: Any, field_name: str) -> Decimal:
@@ -82,11 +80,9 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
     volume = _dec(raw["volume"], "volume")
 
     # Positive price check
-    for name, val in [("open", open_), ("high", high),
-                      ("low", low), ("close", close)]:
+    for name, val in [("open", open_), ("high", high), ("low", low), ("close", close)]:
         if val <= 0:
-            raise ValidationError(
-                f"Price {name}={val} must be positive")
+            raise ValidationError(f"Price {name}={val} must be positive")
 
     # Volume can be 0 but not negative
     if volume < 0:
@@ -94,20 +90,15 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
 
     # OHLC consistency
     if high < low:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < low ({low})")
+        raise OHLCInconsistencyError(f"high ({high}) < low ({low})")
     if high < open_:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < open ({open_})")
+        raise OHLCInconsistencyError(f"high ({high}) < open ({open_})")
     if high < close:
-        raise OHLCInconsistencyError(
-            f"high ({high}) < close ({close})")
+        raise OHLCInconsistencyError(f"high ({high}) < close ({close})")
     if low > open_:
-        raise OHLCInconsistencyError(
-            f"low ({low}) > open ({open_})")
+        raise OHLCInconsistencyError(f"low ({low}) > open ({open_})")
     if low > close:
-        raise OHLCInconsistencyError(
-            f"low ({low}) > close ({close})")
+        raise OHLCInconsistencyError(f"low ({low}) > close ({close})")
 
     return Candle(
         symbol=symbol,
@@ -125,6 +116,7 @@ def validate_candle(raw: dict[str, Any]) -> Candle:
 # ---------------------------------------------------------------------------
 # Batch validation
 # ---------------------------------------------------------------------------
+
 
 def validate_candles(
     raw_rows: Sequence[dict[str, Any]],
@@ -144,8 +136,7 @@ def validate_candles(
     """
     if not raw_rows:
         if lookback and lookback > 0:
-            raise InsufficientDataError(
-                f"Expected at least {lookback} bars, got 0")
+            raise InsufficientDataError(f"Expected at least {lookback} bars, got 0")
         return []
 
     candles: list[Candle] = []
@@ -154,8 +145,8 @@ def validate_candles(
             candle = validate_candle(row)
         except Exception as exc:
             raise ValidationError(
-                f"Row {i} ({row.get('symbol', '?')}, "
-                f"{row.get('datetime', '?')}): {exc}") from exc
+                f"Row {i} ({row.get('symbol', '?')}, " f"{row.get('datetime', '?')}): {exc}"
+            ) from exc
         candles.append(candle)
 
     # Filter to matching symbol/timeframe if specified
@@ -173,15 +164,15 @@ def validate_candles(
         key = (c.symbol, c.timeframe.value, c.datetime)
         if key in seen:
             raise DuplicateTimestampError(
-                f"Duplicate bar: {c.symbol} {c.timeframe.value} "
-                f"{c.datetime.isoformat()}")
+                f"Duplicate bar: {c.symbol} {c.timeframe.value} " f"{c.datetime.isoformat()}"
+            )
         seen.add(key)
 
     # Warm-up / lookback
     if lookback is not None and len(candles) < lookback:
         raise InsufficientDataError(
-            f"Expected at least {lookback} bars for warm-up, "
-            f"got {len(candles)}")
+            f"Expected at least {lookback} bars for warm-up, " f"got {len(candles)}"
+        )
 
     return candles
 
@@ -189,6 +180,7 @@ def validate_candles(
 # ---------------------------------------------------------------------------
 # Normalization (converts raw DB rows to validated Candle list)
 # ---------------------------------------------------------------------------
+
 
 def normalize_candles(
     rows: Sequence[dict[str, Any]],
@@ -204,22 +196,24 @@ def normalize_candles(
 # Freshness checks
 # ---------------------------------------------------------------------------
 
+
 def check_freshness(quote: MarketQuote, max_age_seconds: int) -> None:
     """Raise ``StaleDataError`` if the quote is older than *max_age_seconds*."""
     age = quote.age_seconds
     if age > max_age_seconds:
         raise StaleDataError(
-            f"Quote for {quote.symbol} is {age:.0f}s old "
-            f"(max {max_age_seconds}s)")
+            f"Quote for {quote.symbol} is {age:.0f}s old " f"(max {max_age_seconds}s)"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Warm-up check
 # ---------------------------------------------------------------------------
 
+
 def check_warmup(candles: Sequence[Candle], lookback_bars: int) -> None:
     """Raise ``InsufficientDataError`` if there aren't enough bars."""
     if len(candles) < lookback_bars:
         raise InsufficientDataError(
-            f"Need {lookback_bars} bars for warm-up, "
-            f"have {len(candles)}")
+            f"Need {lookback_bars} bars for warm-up, " f"have {len(candles)}"
+        )

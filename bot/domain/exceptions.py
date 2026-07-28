@@ -11,6 +11,7 @@ class ConfigError(BotError):
 
 # ── Data errors ──────────────────────────────────────────────────────────
 
+
 class DataError(BotError):
     """Base for data-layer errors."""
 

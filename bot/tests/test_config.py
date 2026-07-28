@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
-import os
 
 import pytest
 
-from bot.config import load_config, BotConfig, DEFAULT_CONFIG_PATH
+from bot.config import DEFAULT_CONFIG_PATH, BotConfig, load_config
 from bot.domain.exceptions import ConfigError
 from bot.domain.models import Timeframe
-
 
 # ===========================================================================
 # load_config
 # ===========================================================================
 
+
 class TestLoadConfig:
     def test_load_default(self) -> None:
         """Load the shipped config.yaml and verify structure."""
-        assert DEFAULT_CONFIG_PATH.exists(), (
-            f"Default config not found at {DEFAULT_CONFIG_PATH}")
+        assert DEFAULT_CONFIG_PATH.exists(), f"Default config not found at {DEFAULT_CONFIG_PATH}"
         config = load_config()
         assert len(config.symbols) == 30
         assert Timeframe.H1 in config.timeframes
@@ -37,17 +36,23 @@ class TestLoadConfig:
     def test_missing_env_var(self) -> None:
         """supabase_url property should raise when env var is unset."""
         config = load_config()
-        with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigError, match="SUPABASE_URL"):
-                _ = config.supabase_url
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ConfigError, match="SUPABASE_URL"),
+        ):
+            _ = config.supabase_url
 
     def test_env_var_property(self) -> None:
         """Should read env vars when set."""
         config = load_config()
-        with patch.dict(os.environ, {
-            config.supabase_url_var: "https://test.supabase.co",
-            config.supabase_key_var: "test-service-key",
-        }, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                config.supabase_url_var: "https://test.supabase.co",
+                config.supabase_key_var: "test-service-key",
+            },
+            clear=False,
+        ):
             assert config.supabase_url == "https://test.supabase.co"
             assert config.supabase_service_role_key == "test-service-key"
 
@@ -55,6 +60,7 @@ class TestLoadConfig:
 # ===========================================================================
 # BotConfig validation
 # ===========================================================================
+
 
 class TestBotConfig:
     def test_empty_symbols(self) -> None:
@@ -74,23 +80,27 @@ class TestBotConfig:
         assert cfg.symbols[0] == "BTC-USDT"
 
     def test_defaults_applied(self) -> None:
-        cfg = BotConfig({
-            "symbols": ["BTC-USDT"],
-            "timeframes": ["1h"],
-        })
+        cfg = BotConfig(
+            {
+                "symbols": ["BTC-USDT"],
+                "timeframes": ["1h"],
+            }
+        )
         assert cfg.poll_interval_seconds == 60
         assert cfg.price_max_age_seconds == 120
         assert cfg.starting_balance == 10000.0
         assert cfg.logging_level == "INFO"
 
     def test_custom_values(self) -> None:
-        cfg = BotConfig({
-            "symbols": ["BTC-USDT", "ETH-USDT"],
-            "timeframes": ["1h", "4h"],
-            "poll_interval_seconds": 30,
-            "starting_balance": 50000,
-            "logging_level": "DEBUG",
-        })
+        cfg = BotConfig(
+            {
+                "symbols": ["BTC-USDT", "ETH-USDT"],
+                "timeframes": ["1h", "4h"],
+                "poll_interval_seconds": 30,
+                "starting_balance": 50000,
+                "logging_level": "DEBUG",
+            }
+        )
         assert cfg.symbols == ["BTC-USDT", "ETH-USDT"]
         assert len(cfg.timeframes) == 2
         assert cfg.poll_interval_seconds == 30

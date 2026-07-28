@@ -12,19 +12,18 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import NoReturn
 
 from supabase import create_client
 
-from bot.config import load_config, BotConfig
+from bot.config import BotConfig, load_config
 from bot.data.supabase_adapter import SupabaseMarketData
 from bot.domain.exceptions import BotError
 from bot.domain.models import Symbol, Timeframe
 
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
@@ -53,7 +52,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate-config
     p_conf = sub.add_parser("validate-config", help="Validate the YAML config file.")
     p_conf.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         type=Path,
         default=None,
         help="Path to config.yaml (default: bot/config.yaml)",
@@ -62,18 +62,18 @@ def _build_parser() -> argparse.ArgumentParser:
     # market-data-check
     p_data = sub.add_parser("market-data-check", help="Check data availability.")
     p_data.add_argument("symbol", type=str, help="Trading pair, e.g. BTC-USDT")
-    p_data.add_argument("--timeframe", "-tf", type=str, default="1h",
-                        help="Bar interval (default: 1h)")
-    p_data.add_argument("--config", "-c", type=Path, default=None,
-                        help="Path to config.yaml")
+    p_data.add_argument(
+        "--timeframe", "-tf", type=str, default="1h", help="Bar interval (default: 1h)"
+    )
+    p_data.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
 
     # show-latest
     p_latest = sub.add_parser("show-latest", help="Show the latest OHLCV bar.")
     p_latest.add_argument("symbol", type=str, help="Trading pair, e.g. BTC-USDT")
-    p_latest.add_argument("--timeframe", "-tf", type=str, default="1h",
-                          help="Bar interval (default: 1h)")
-    p_latest.add_argument("--config", "-c", type=Path, default=None,
-                          help="Path to config.yaml")
+    p_latest.add_argument(
+        "--timeframe", "-tf", type=str, default="1h", help="Bar interval (default: 1h)"
+    )
+    p_latest.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
 
     return parser
 
@@ -91,6 +91,7 @@ def _run_command(args: argparse.Namespace) -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_config(args: argparse.Namespace) -> BotConfig:
     return load_config(args.config)
 
@@ -104,6 +105,7 @@ def _build_data(args: argparse.Namespace) -> SupabaseMarketData:
 # ---------------------------------------------------------------------------
 # validate-config
 # ---------------------------------------------------------------------------
+
 
 def _cmd_validate_config(args: argparse.Namespace) -> None:
     config = _load_config(args)
@@ -128,13 +130,13 @@ def _cmd_validate_config(args: argparse.Namespace) -> None:
 # market-data-check
 # ---------------------------------------------------------------------------
 
+
 def _cmd_market_data_check(args: argparse.Namespace) -> None:
     symbol = Symbol(args.symbol.upper())
     try:
         timeframe = Timeframe(args.timeframe.lower())
     except ValueError:
-        print(f"ERROR: invalid timeframe {args.timeframe!r} (use 1h, 4h, 1d)",
-              file=sys.stderr)
+        print(f"ERROR: invalid timeframe {args.timeframe!r} (use 1h, 4h, 1d)", file=sys.stderr)
         sys.exit(1)
 
     data = _build_data(args)
@@ -157,10 +159,9 @@ def _cmd_market_data_check(args: argparse.Namespace) -> None:
     try:
         quote = data.fetch_quote(symbol)
         if quote is not None:
-            print(f"   ✅ Quote: ${quote.price:,.2f} "
-                  f"(age: {quote.age_seconds:.0f}s)")
+            print(f"   ✅ Quote: ${quote.price:,.2f} " f"(age: {quote.age_seconds:.0f}s)")
         else:
-            print(f"   ⚠️  Quote: no data in crypto_data")
+            print("   ⚠️  Quote: no data in crypto_data")
     except Exception as exc:
         print(f"   ❌ Quote: {exc}")
 
@@ -169,13 +170,13 @@ def _cmd_market_data_check(args: argparse.Namespace) -> None:
 # show-latest
 # ---------------------------------------------------------------------------
 
+
 def _cmd_show_latest(args: argparse.Namespace) -> None:
     symbol = Symbol(args.symbol.upper())
     try:
         timeframe = Timeframe(args.timeframe.lower())
     except ValueError:
-        print(f"ERROR: invalid timeframe {args.timeframe!r} (use 1h, 4h, 1d)",
-              file=sys.stderr)
+        print(f"ERROR: invalid timeframe {args.timeframe!r} (use 1h, 4h, 1d)", file=sys.stderr)
         sys.exit(1)
 
     data = _build_data(args)

@@ -1,0 +1,56 @@
+name: Bot CI
+
+on:
+  push:
+    branches:
+      - "phase/*"
+      - main
+    paths:
+      - "bot/**"
+      - ".github/workflows/bot-ci.yml"
+  pull_request:
+    paths:
+      - "bot/**"
+      - ".github/workflows/bot-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  bot-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends git
+
+      - name: Install bot dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml supabase pytest pytest-cov ruff black mypy
+
+      - name: Lint with ruff
+        run: ruff check bot/
+
+      - name: Format check with black
+        run: black --check --diff bot/
+
+      - name: Type check with mypy
+        run: mypy bot/
+        continue-on-error: true  # mypy is advisory per ARCHITECTURE.md
+
+      - name: Run unit tests with coverage
+        run: |
+          cd bot
+          python -m pytest --cov=bot --cov-report=term-missing --cov-fail-under=75
+        env:
+          PYTHONPATH: ".."
+
+      - name: Vibe-trading boundary check
+        run: python bot/scripts/check-vibe-boundary.py

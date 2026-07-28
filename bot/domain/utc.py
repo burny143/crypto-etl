@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Union
 
 from bot.domain.exceptions import ValidationError
 
@@ -16,6 +15,7 @@ _UTC = timezone.utc
 # Current time
 # ---------------------------------------------------------------------------
 
+
 def utc_now() -> datetime:
     """Return the current UTC time, timezone-aware."""
     return datetime.now(_UTC)
@@ -24,6 +24,7 @@ def utc_now() -> datetime:
 # ---------------------------------------------------------------------------
 # UTC enforcement
 # ---------------------------------------------------------------------------
+
 
 def ensure_utc(dt: datetime | None) -> datetime | None:
     """Convert a naive or non-UTC datetime to UTC.
@@ -42,15 +43,14 @@ def ensure_utc(dt: datetime | None) -> datetime | None:
 def assert_utc(dt: datetime, field: str = "datetime") -> None:
     """Raise ``ValidationError`` if the datetime is not UTC-aware."""
     if dt.tzinfo is None or dt.utcoffset() is None:
-        raise ValidationError(
-            f"{field} must be timezone-aware UTC, got {dt!r}")
+        raise ValidationError(f"{field} must be timezone-aware UTC, got {dt!r}")
 
 
 # ---------------------------------------------------------------------------
 # Decimal conversion
 # ---------------------------------------------------------------------------
 
-NumT = Union[int, float, str, Decimal]
+NumT = int | float | str | Decimal
 
 
 def to_decimal(value: NumT | None, field: str = "value") -> Decimal | None:
@@ -64,17 +64,16 @@ def to_decimal(value: NumT | None, field: str = "value") -> Decimal | None:
     try:
         d = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:
-        raise ValidationError(
-            f"Cannot convert {field}={value!r} to Decimal: {exc}") from exc
+        raise ValidationError(f"Cannot convert {field}={value!r} to Decimal: {exc}") from exc
     if not d.is_finite():
-        raise ValidationError(
-            f"{field}={value!r} is not a finite number")
+        raise ValidationError(f"{field}={value!r} is not a finite number")
     return d
 
 
 # ---------------------------------------------------------------------------
 # Candle time helpers
 # ---------------------------------------------------------------------------
+
 
 def candle_open_time(dt: datetime, interval_minutes: int) -> datetime:
     """Round *dt* down to the nearest bar open time.
@@ -95,13 +94,12 @@ def candle_open_time(dt: datetime, interval_minutes: int) -> datetime:
 
 def candle_close_time(open_dt: datetime, interval_minutes: int) -> datetime:
     """Compute the close time for a candle that opened at *open_dt*."""
-    return candle_open_time(open_dt, interval_minutes) + timedelta(
-        minutes=interval_minutes)
+    return candle_open_time(open_dt, interval_minutes) + timedelta(minutes=interval_minutes)
 
 
-def is_completed_candle(open_dt: datetime, interval_minutes: int,
-                        now: datetime | None = None,
-                        grace_seconds: int = 30) -> bool:
+def is_completed_candle(
+    open_dt: datetime, interval_minutes: int, now: datetime | None = None, grace_seconds: int = 30
+) -> bool:
     """Return ``True`` if a candle with the given *open_dt* is complete.
 
     A candle is complete when its close time + grace period has passed.

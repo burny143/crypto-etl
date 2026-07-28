@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Sequence
+from collections.abc import Sequence
 
 from bot.domain.models import Candle, MarketQuote, Symbol, Timeframe
 
@@ -16,10 +16,11 @@ class MarketDataProvider(ABC):
     """
 
     @abstractmethod
-    def fetch_ohlcv(self, symbol: Symbol, timeframe: Timeframe,
-                    lookback: int = 200) -> Sequence[Candle]:
+    def fetch_ohlcv(
+        self, symbol: Symbol, timeframe: Timeframe, lookback: int = 200
+    ) -> Sequence[Candle]:
         """Fetch the most recent *lookback* OHLCV bars.
-        
+
         Returns bars in chronological order (oldest first).
         Raises ``DataError`` if the source is unreachable.
         Raises ``InsufficientDataError`` if fewer than *lookback* bars

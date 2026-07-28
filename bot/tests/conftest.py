@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
@@ -19,7 +18,7 @@ def sample_ohlcv() -> list[dict[str, Any]]:
     if not path.exists():
         # Fallback: return minimal valid data
         return _minimal_ohlcv()
-    with open(path, "r") as fh:
+    with open(path) as fh:
         return json.load(fh)
 
 
@@ -29,33 +28,37 @@ def malformed_ohlcv() -> list[dict[str, Any]]:
     path = FIXTURES_DIR / "ohlcv_malformed.json"
     if not path.exists():
         return _minimal_malformed()
-    with open(path, "r") as fh:
+    with open(path) as fh:
         return json.load(fh)
 
 
 def _minimal_ohlcv() -> list[dict[str, Any]]:
     """Generate 10 bars of synthetic valid OHLCV data."""
     from datetime import datetime, timezone
+
     bars = []
     for i in range(10):
         dt = datetime(2026, 1, 1, i, 0, 0, tzinfo=timezone.utc)
         base = 50000 + i * 10
-        bars.append({
-            "symbol": "BTC-USDT",
-            "timeframe": "1h",
-            "datetime": dt.isoformat(),
-            "open": base,
-            "high": base + 50,
-            "low": base - 50,
-            "close": base + 10,
-            "volume": 100.5 + i,
-        })
+        bars.append(
+            {
+                "symbol": "BTC-USDT",
+                "timeframe": "1h",
+                "datetime": dt.isoformat(),
+                "open": base,
+                "high": base + 50,
+                "low": base - 50,
+                "close": base + 10,
+                "volume": 100.5 + i,
+            }
+        )
     return bars
 
 
 def _minimal_malformed() -> list[dict[str, Any]]:
     """Generate minimal edge-case data."""
     from datetime import datetime, timezone
+
     return [
         # Row 0: missing field
         {
