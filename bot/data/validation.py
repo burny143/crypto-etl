@@ -145,7 +145,7 @@ def validate_candles(
             candle = validate_candle(row)
         except Exception as exc:
             raise ValidationError(
-                f"Row {i} ({row.get('symbol', '?')}, " f"{row.get('datetime', '?')}): {exc}"
+                f"Row {i} ({row.get('symbol', '?')}, {row.get('datetime', '?')}): {exc}"
             ) from exc
         candles.append(candle)
 
@@ -164,14 +164,14 @@ def validate_candles(
         key = (c.symbol, c.timeframe.value, c.datetime)
         if key in seen:
             raise DuplicateTimestampError(
-                f"Duplicate bar: {c.symbol} {c.timeframe.value} " f"{c.datetime.isoformat()}"
+                f"Duplicate bar: {c.symbol} {c.timeframe.value} {c.datetime.isoformat()}"
             )
         seen.add(key)
 
     # Warm-up / lookback
     if lookback is not None and len(candles) < lookback:
         raise InsufficientDataError(
-            f"Expected at least {lookback} bars for warm-up, " f"got {len(candles)}"
+            f"Expected at least {lookback} bars for warm-up, got {len(candles)}"
         )
 
     return candles
@@ -201,9 +201,7 @@ def check_freshness(quote: MarketQuote, max_age_seconds: int) -> None:
     """Raise ``StaleDataError`` if the quote is older than *max_age_seconds*."""
     age = quote.age_seconds
     if age > max_age_seconds:
-        raise StaleDataError(
-            f"Quote for {quote.symbol} is {age:.0f}s old " f"(max {max_age_seconds}s)"
-        )
+        raise StaleDataError(f"Quote for {quote.symbol} is {age:.0f}s old (max {max_age_seconds}s)")
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +212,4 @@ def check_freshness(quote: MarketQuote, max_age_seconds: int) -> None:
 def check_warmup(candles: Sequence[Candle], lookback_bars: int) -> None:
     """Raise ``InsufficientDataError`` if there aren't enough bars."""
     if len(candles) < lookback_bars:
-        raise InsufficientDataError(
-            f"Need {lookback_bars} bars for warm-up, " f"have {len(candles)}"
-        )
+        raise InsufficientDataError(f"Need {lookback_bars} bars for warm-up, have {len(candles)}")

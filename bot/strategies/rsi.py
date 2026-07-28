@@ -78,7 +78,7 @@ class RsiReversionStrategy:
     def evaluate(self, candles: Sequence[Candle]) -> Signal:
         if len(candles) < self.min_history:
             raise InsufficientDataError(
-                f"{self.STRATEGY_ID} needs at least {self.min_history} bars, " f"got {len(candles)}"
+                f"{self.STRATEGY_ID} needs at least {self.min_history} bars, got {len(candles)}"
             )
 
         closes = [float(c.close) for c in candles]

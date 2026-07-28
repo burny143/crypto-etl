@@ -27,6 +27,7 @@ class PortfolioService:
         self._cash = starting_balance
         # Keyed by (symbol, side) — one position per pair per side
         self._positions: dict[tuple[Symbol, Side], PaperPosition] = {}
+        self._cumulative_realized_pnl: Decimal = Decimal("0")
 
     # ------------------------------------------------------------------
     # Properties
@@ -46,7 +47,7 @@ class PortfolioService:
 
     @property
     def total_realized_pnl(self) -> Decimal:
-        return sum((p.realized_pnl for p in self._positions.values()), Decimal("0"))
+        return self._cumulative_realized_pnl
 
     def get_position(self, symbol: Symbol, side: Side) -> PaperPosition | None:
         return self._positions.get((symbol, side))
@@ -55,8 +56,13 @@ class PortfolioService:
     # Position management
     # ------------------------------------------------------------------
 
-    def apply_fill(self, order: PaperOrder) -> None:
-        """Update portfolio after an order fill (entry or exit)."""
+    def apply_fill(self, order: PaperOrder, fee: Decimal = Decimal("0")) -> None:
+        """Update portfolio after an order fill (entry or exit).
+
+        Args:
+            order: A filled PaperOrder.
+            fee: Optional trading fee deducted from cash (default 0).
+        """
         if order.status != OrderStatus.FILLED or order.price is None:
             raise ValueError(f"Cannot apply unfilled order: {order.status}")
 
@@ -72,6 +78,7 @@ class PortfolioService:
                 total_cost = (existing.quantity * existing.entry_price) + cost
                 existing.entry_price = total_cost / total_qty
                 existing.quantity = total_qty
+                existing.strategy_id = order.strategy_id  # track latest strategy
             else:
                 self._positions[key] = PaperPosition(
                     symbol=order.symbol,
@@ -82,6 +89,7 @@ class PortfolioService:
                     opened_at=order.filled_at or utc_now(),
                 )
             self._cash -= cost
+            self._cash -= fee
 
         elif order.side == Side.SHORT:
             # Opening a short: cash increases (credit from sale)
@@ -91,6 +99,7 @@ class PortfolioService:
                 total_credit = (existing.quantity * existing.entry_price) + cost
                 existing.entry_price = total_credit / total_qty
                 existing.quantity = total_qty
+                existing.strategy_id = order.strategy_id  # track latest strategy
             else:
                 self._positions[key] = PaperPosition(
                     symbol=order.symbol,
@@ -101,6 +110,7 @@ class PortfolioService:
                     opened_at=order.filled_at or utc_now(),
                 )
             self._cash += cost
+            self._cash -= fee
 
     def close_position(
         self,
@@ -108,6 +118,7 @@ class PortfolioService:
         side: Side,
         close_price: Decimal,
         close_quantity: Decimal | None = None,
+        fee: Decimal = Decimal("0"),
     ) -> PaperOrder:
         """Partially or fully close a position, returning the closing order.
 
@@ -116,6 +127,7 @@ class PortfolioService:
             side: Side of the position to close.
             close_price: Fill price for the close.
             close_quantity: Quantity to close.  ``None`` = all.
+            fee: Optional trading fee deducted from cash (default 0).
 
         Returns:
             The ``PaperOrder`` that represents the closing trade.
@@ -145,7 +157,11 @@ class PortfolioService:
             # Buying back short → cash decreases
             self._cash -= qty * close_price
 
+        self._cash -= fee
+
+        # Track realized PnL cumulatively
         pos.realized_pnl += pnl
+        self._cumulative_realized_pnl += pnl
 
         # Reduce or remove position
         remaining = pos.quantity - qty
@@ -153,8 +169,10 @@ class PortfolioService:
             del self._positions[key]
         else:
             pos.quantity = remaining
+            # Partial close: invalidate unrealized PnL so next price update
+            # recalculates it with the correct quantity
+            pos.unrealized_pnl = None
 
-        now = utc_now()
         return PaperOrder(
             symbol=symbol,
             side=close_side,
@@ -163,8 +181,8 @@ class PortfolioService:
             status=OrderStatus.FILLED,
             strategy_id=pos.strategy_id,
             pnl=pnl,
-            filled_at=now,
-            opened_at=now,
+            filled_at=utc_now(),
+            opened_at=pos.opened_at,
             # decision_key intentionally blank — identifying close orders by
             # the exit signal key is done at the engine layer
         )

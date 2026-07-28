@@ -184,7 +184,7 @@ def _cmd_market_data_check(args: argparse.Namespace) -> None:
     try:
         quote = data.fetch_quote(symbol)
         if quote is not None:
-            print(f"   ✅ Quote: ${quote.price:,.2f} " f"(age: {quote.age_seconds:.0f}s)")
+            print(f"   ✅ Quote: ${quote.price:,.2f} (age: {quote.age_seconds:.0f}s)")
         else:
             print("   ⚠️  Quote: no data in crypto_data")
     except Exception as exc:

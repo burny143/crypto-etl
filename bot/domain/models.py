@@ -170,6 +170,7 @@ class PaperOrder:
     opened_at: datetime | None = None
     filled_at: datetime | None = None
     closed_at: datetime | None = None
+    fee: Decimal = Decimal("0")  # trading fee paid for this order
     pnl: Decimal | None = None  # realized PnL (only when closed)
 
 

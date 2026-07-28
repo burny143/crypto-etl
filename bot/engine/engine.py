@@ -21,13 +21,14 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from bot.config import BotConfig
 from bot.data.provider import MarketDataProvider
 from bot.domain.models import (
     MarketQuote,
     OrderIntent,
+    PortfolioSnapshot,
     Side,
     Signal,
     SignalAction,
@@ -109,6 +110,11 @@ class BotEngine:
             trade_fraction if trade_fraction is not None else self.DEFAULT_TRADE_FRACTION
         )
         self._running = False
+        # Cache of seen decision keys for O(1) duplicate detection.
+        # Lazily hydrated from the order repo on first use.
+        self._seen_keys: set[str] = set()
+        # In-memory equity curve trail.
+        self._equity_curve: list[PortfolioSnapshot] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,6 +133,7 @@ class BotEngine:
                 result.errors.append(msg)
 
         self._update_position_prices(result)
+        self._equity_curve.append(self._portfolio.snapshot(self._current_prices()))
         return result
 
     def run_forever(self) -> None:
@@ -181,7 +188,6 @@ class BotEngine:
                     continue
 
                 result.signals_generated += 1
-                self._signal_repo.save(signal)
 
                 quote = self._data.fetch_quote(symbol)
                 if quote is None:
@@ -209,11 +215,12 @@ class BotEngine:
 
         intent = OrderIntent(symbol=signal.symbol, side=side, quantity=quantity, signal=signal)
 
-        # Collect existing decision keys for duplicate check
-        existing_keys = {o.decision_key for o in self._order_repo}
+        # Lazily hydrate seen-keys cache from existing orders
+        if not self._seen_keys:
+            self._seen_keys = {o.decision_key for o in self._order_repo}
 
         decision = self._risk.check_order(
-            intent, self._portfolio, quote, existing_keys=existing_keys
+            intent, self._portfolio, quote, existing_keys=self._seen_keys
         )
         if not decision.approved:
             logger.debug(
@@ -229,6 +236,11 @@ class BotEngine:
         order = self._executor.fill_order(intent, quote)
         self._portfolio.apply_fill(order)
         self._order_repo.save(order)
+        if order.decision_key:
+            self._seen_keys.add(order.decision_key)
+
+        # Persist signal only after risk-approved entry
+        self._signal_repo.save(signal)
 
         # Persist position if it's now open
         pos = self._portfolio.get_position(signal.symbol, side)
@@ -241,24 +253,21 @@ class BotEngine:
         """Close an existing position triggered by an exit signal."""
         # The side of the position to close
         exit_side = Side.LONG if signal.action == SignalAction.EXIT_LONG else Side.SHORT
-        close_side = Side.SHORT if exit_side == Side.LONG else Side.LONG
 
         position = self._portfolio.get_position(signal.symbol, exit_side)
         if position is None:
             return
 
-        intent = OrderIntent(
-            symbol=signal.symbol,
-            side=close_side,
-            quantity=position.quantity,
-            signal=signal,
-        )
-
-        order = self._executor.fill_order(intent, quote)
-        close_order = self._portfolio.close_position(signal.symbol, exit_side, order.price)
+        close_order = self._portfolio.close_position(signal.symbol, exit_side, quote.price)
         close_order.decision_key = signal.decision_key  # propagate for traceability
         self._order_repo.save(close_order)
         self._position_repo.delete(signal.symbol, exit_side)
+        if close_order.decision_key:
+            self._seen_keys.add(close_order.decision_key)
+
+        # Persist signal only after confirmed close
+        self._signal_repo.save(signal)
+
         result.orders_created += 1
 
     # ------------------------------------------------------------------
@@ -297,8 +306,7 @@ class BotEngine:
             available = self._portfolio.total_equity(self._current_prices())
 
         raw = available * self._trade_fraction / price
-        # Floor to 4 decimal places
-        return Decimal(str(int(raw * 10000))) / Decimal(10000)
+        return raw.quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
 
     def _current_prices(self) -> dict[Symbol, Decimal]:
         """Fetch current prices for all symbols with open positions."""
@@ -308,6 +316,6 @@ class BotEngine:
                 quote = self._data.fetch_quote(pos.symbol)
                 if quote is not None:
                     prices[pos.symbol] = quote.price
-            except Exception:
-                continue
+            except Exception as exc:
+                logger.warning("Failed to fetch price for %s: %s", pos.symbol, exc)
         return prices
