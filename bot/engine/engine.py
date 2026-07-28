@@ -37,6 +37,7 @@ from bot.domain.utc import utc_now
 from bot.execution.executor import PaperExecutor
 from bot.portfolio.service import PortfolioService
 from bot.repositories.memory import InMemoryOrderRepository, InMemoryPositionRepository
+from bot.repositories.signal import InMemorySignalRepository, SignalRepository
 from bot.risk.manager import RiskManager
 from bot.strategies.registry import StrategyRegistry
 
@@ -90,6 +91,7 @@ class BotEngine:
         executor: PaperExecutor,
         order_repo: InMemoryOrderRepository | None = None,
         position_repo: InMemoryPositionRepository | None = None,
+        signal_repo: SignalRepository | None = None,
         trade_fraction: Decimal | None = None,
     ) -> None:
         self._config = config
@@ -98,9 +100,14 @@ class BotEngine:
         self._portfolio = portfolio
         self._risk = risk_manager
         self._executor = executor
-        self._order_repo = order_repo or InMemoryOrderRepository()
-        self._position_repo = position_repo or InMemoryPositionRepository()
-        self._trade_fraction = trade_fraction or self.DEFAULT_TRADE_FRACTION
+        self._order_repo = order_repo if order_repo is not None else InMemoryOrderRepository()
+        self._position_repo = (
+            position_repo if position_repo is not None else InMemoryPositionRepository()
+        )
+        self._signal_repo = signal_repo if signal_repo is not None else InMemorySignalRepository()
+        self._trade_fraction = (
+            trade_fraction if trade_fraction is not None else self.DEFAULT_TRADE_FRACTION
+        )
         self._running = False
 
     # ------------------------------------------------------------------
@@ -174,6 +181,8 @@ class BotEngine:
                     continue
 
                 result.signals_generated += 1
+                self._signal_repo.save(signal)
+
                 quote = self._data.fetch_quote(symbol)
                 if quote is None:
                     continue

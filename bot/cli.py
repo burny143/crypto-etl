@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from supabase import create_client
 
@@ -19,6 +20,9 @@ from bot.config import BotConfig, load_config
 from bot.data.supabase_adapter import SupabaseMarketData
 from bot.domain.exceptions import BotError
 from bot.domain.models import Symbol, Timeframe
+
+if TYPE_CHECKING:
+    from bot.engine import BotEngine
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -39,6 +43,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
+        print("\nShutdown by user.")
         sys.exit(130)
 
 
@@ -75,6 +80,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_latest.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
 
+    # run (continuous)
+    p_run = sub.add_parser("run", help="Run the bot in continuous mode.")
+    p_run.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
+    p_run.add_argument(
+        "--in-memory",
+        action="store_true",
+        help="Use in-memory storage instead of Supabase",
+    )
+
+    # run-once (single iteration)
+    p_once = sub.add_parser("run-once", help="Run a single evaluation cycle and exit.")
+    p_once.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
+    p_once.add_argument(
+        "--in-memory",
+        action="store_true",
+        help="Use in-memory storage instead of Supabase",
+    )
+
     return parser
 
 
@@ -85,6 +108,8 @@ def _run_command(args: argparse.Namespace) -> None:
         _cmd_market_data_check(args)
     elif args.command == "show-latest":
         _cmd_show_latest(args)
+    elif args.command in ("run", "run-once"):
+        _cmd_run(args)
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +222,109 @@ def _cmd_show_latest(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # CLI entry
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Bot factory
+# ---------------------------------------------------------------------------
+
+
+def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
+    """Wire all dependencies and return a ready-to-run ``BotEngine``.
+
+    Args:
+        config: Validated bot configuration.
+        use_supabase: When ``True`` (default) uses Supabase-backed repositories
+            and market data.  When ``False`` uses in-memory storage.
+
+    Returns:
+        A fully-wired ``BotEngine`` instance.
+    """
+    from decimal import Decimal
+
+    from bot.data.supabase_adapter import SupabaseMarketData
+    from bot.engine import BotEngine
+    from bot.execution.executor import PaperExecutor
+    from bot.portfolio.service import PortfolioService
+    from bot.repositories.signal import SupabaseSignalRepository
+    from bot.repositories.supabase_repos import (
+        SupabaseOrderRepository,
+        SupabasePositionRepository,
+    )
+    from bot.risk.manager import RiskManager
+    from bot.strategies.registry import StrategyRegistry
+
+    client = create_client(config.supabase_url, config.supabase_service_role_key)
+
+    data = SupabaseMarketData(client, config)
+
+    registry = StrategyRegistry()
+    registry.register_defaults()
+
+    portfolio = PortfolioService(Decimal(str(config.starting_balance)))
+    risk = RiskManager(config)
+    executor = PaperExecutor()
+
+    if use_supabase:
+        order_repo = SupabaseOrderRepository(client)
+        position_repo = SupabasePositionRepository(client)
+        signal_repo = SupabaseSignalRepository(client)
+    else:
+        from bot.repositories.memory import (
+            InMemoryOrderRepository,
+            InMemoryPositionRepository,
+        )
+
+        order_repo = InMemoryOrderRepository()
+        position_repo = InMemoryPositionRepository()
+        signal_repo = None  # engine defaults to in-memory
+
+    return BotEngine(
+        config=config,
+        data_provider=data,
+        registry=registry,
+        portfolio=portfolio,
+        risk_manager=risk,
+        executor=executor,
+        order_repo=order_repo,
+        position_repo=position_repo,
+        signal_repo=signal_repo,
+    )
+
+
+# ---------------------------------------------------------------------------
+# run / run-once
+# ---------------------------------------------------------------------------
+
+
+def _cmd_run(args: argparse.Namespace) -> None:
+    """Execute the bot in single-cycle or continuous mode."""
+    import logging
+
+    config = _load_config(args)
+    logging.basicConfig(
+        level=getattr(logging, config.logging_level, logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    engine = build_bot(config, use_supabase=not args.in_memory)
+
+    if args.command == "run-once":
+        result = engine.run_once()
+        print(
+            f"Cycle complete — "
+            f"{result.symbols_evaluated} symbols, "
+            f"{result.signals_generated} signals, "
+            f"{result.orders_created} orders, "
+            f"{result.orders_rejected} rejected, "
+            f"{len(result.errors)} errors"
+        )
+        if result.errors:
+            for err in result.errors:
+                print(f"  ⚠ {err}", file=sys.stderr)
+    else:
+        engine.run_forever()
+
 
 if __name__ == "__main__":
     main()
