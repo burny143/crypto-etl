@@ -165,6 +165,8 @@ class PortfolioService:
             pnl=pnl,
             filled_at=now,
             opened_at=now,
+            # decision_key intentionally blank — identifying close orders by
+            # the exit signal key is done at the engine layer
         )
 
     # ------------------------------------------------------------------
