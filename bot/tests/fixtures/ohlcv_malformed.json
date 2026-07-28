@@ -1,0 +1,12 @@
+[
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T00:00:00Z", "open": 50000.0, "high": 50050.0, "low": 49950.0, "volume": 100.5},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T01:00:00Z", "open": 50020.0, "high": 50080.0, "low": 49980.0, "close": "notanumber", "volume": 110.2},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T02:00:00Z", "open": 50060.0, "high": 50100.0, "low": 50040.0, "close": "inf", "volume": 95.0},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T03:00:00Z", "open": 50090.0, "high": 50120.0, "low": 50070.0, "close": 50100.0, "volume": 105.8},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T04:00:00Z", "open": 50100.0, "high": 50050.0, "low": 50080.0, "close": 50130.0, "volume": 120.0},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T05:00:00Z", "open": 50130.0, "high": 50160.0, "low": 50100.0, "close": 50140.0, "volume": 98.3},
+  {"symbol": "BTC-USDT", "timeframe": "1h", "datetime": "2026-01-01T06:00:00Z", "open": 50140.0, "high": 50180.0, "low": 50120.0, "close": 50170.0, "volume": 112.7},
+  {"symbol": "ETH-USDT", "timeframe": "1h", "datetime": "2099-01-01T00:00:00Z", "open": 3000.0, "high": 3050.0, "low": 2950.0, "close": 3020.0, "volume": 500.0},
+  {"symbol": "XRP-USDT", "timeframe": "1h", "datetime": "2026-01-01T07:00:00Z", "open": -1.0, "high": 1.0, "low": -2.0, "close": 0.5, "volume": 1000.0},
+  {"symbol": "XRP-USDT", "timeframe": "1h", "datetime": "2026-01-01T07:00:00Z", "open": 0.5, "high": 1.0, "low": 0.1, "close": 0.8, "volume": 500.0}
+]

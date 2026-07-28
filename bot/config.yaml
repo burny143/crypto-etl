@@ -1,0 +1,59 @@
+# =============================================================================
+# Paper-Trading Bot — Configuration
+# =============================================================================
+
+# Trading universe
+symbols:
+  - BTC-USDT
+  - ETH-USDT
+  - XRP-USDT
+  - SOL-USDT
+  - BNB-USDT
+  - ADA-USDT
+  - DOGE-USDT
+  - AVAX-USDT
+  - DOT-USDT
+  - LINK-USDT
+  - UNI-USDT
+  - SHIB-USDT
+  - LTC-USDT
+  - BCH-USDT
+  - ATOM-USDT
+  - ETC-USDT
+  - XLM-USDT
+  - FIL-USDT
+  - TRX-USDT
+  - NEAR-USDT
+  - APT-USDT
+  - ARB-USDT
+  - OP-USDT
+  - SUI-USDT
+  - PEPE-USDT
+  - INJ-USDT
+  - TIA-USDT
+  - POL-USDT
+  - SEI-USDT
+  - STRK-USDT
+
+# Bar intervals to trade
+timeframes:
+  - 1h
+  - 4h
+  - 1d
+
+# Data & polling
+poll_interval_seconds: 60
+price_max_age_seconds: 120
+candle_grace_seconds: 30
+lookback_bars: 200
+
+# Starting capital
+starting_balance: 10000.00
+
+# Logging
+logging_level: INFO
+
+# Environment-variable names that supply credentials
+env:
+  supabase_url: SUPABASE_URL
+  supabase_service_role_key: SUPABASE_SERVICE_ROLE_KEY
