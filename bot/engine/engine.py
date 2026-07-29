@@ -39,10 +39,20 @@ from bot.execution.executor import PaperExecutor
 from bot.portfolio.service import PortfolioService
 from bot.repositories.memory import InMemoryOrderRepository, InMemoryPositionRepository
 from bot.repositories.signal import InMemorySignalRepository, SignalRepository
+from bot.repositories.supabase_repos import (
+    SupabaseEquityCurveRepository,
+    SupabaseOrderRepository,
+    SupabasePositionRepository,
+)
 from bot.risk.manager import RiskManager
 from bot.strategies.registry import StrategyRegistry
 
 logger = logging.getLogger(__name__)
+
+# Type aliases for repository protocols (any object with save/all/find_by_key methods)
+OrderRepository = InMemoryOrderRepository | SupabaseOrderRepository
+PositionRepository = InMemoryPositionRepository | SupabasePositionRepository
+EquityCurveRepository = SupabaseEquityCurveRepository | None
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +100,9 @@ class BotEngine:
         portfolio: PortfolioService,
         risk_manager: RiskManager,
         executor: PaperExecutor,
-        order_repo: InMemoryOrderRepository | None = None,
-        position_repo: InMemoryPositionRepository | None = None,
+        order_repo: OrderRepository | None = None,
+        position_repo: PositionRepository | None = None,
+        equity_curve_repo: EquityCurveRepository = None,
         signal_repo: SignalRepository | None = None,
         trade_fraction: Decimal | None = None,
     ) -> None:
@@ -105,6 +116,7 @@ class BotEngine:
         self._position_repo = (
             position_repo if position_repo is not None else InMemoryPositionRepository()
         )
+        self._equity_curve_repo = equity_curve_repo
         self._signal_repo = signal_repo if signal_repo is not None else InMemorySignalRepository()
         self._trade_fraction = (
             trade_fraction if trade_fraction is not None else self.DEFAULT_TRADE_FRACTION
@@ -133,7 +145,10 @@ class BotEngine:
                 result.errors.append(msg)
 
         self._update_position_prices(result)
-        self._equity_curve.append(self._portfolio.snapshot(self._current_prices()))
+        snapshot = self._portfolio.snapshot(self._current_prices())
+        self._equity_curve.append(snapshot)
+        if self._equity_curve_repo is not None:
+            self._equity_curve_repo.save(snapshot)
         return result
 
     def run_forever(self) -> None:
@@ -170,6 +185,36 @@ class BotEngine:
             time.sleep(self._config.poll_interval_seconds)
 
         logger.info("Bot engine stopped.")
+
+    # ------------------------------------------------------------------
+    # Startup / Shutdown
+    # ------------------------------------------------------------------
+
+    def load_state_on_startup(self) -> None:
+        """Hydrate portfolio from persisted orders/positions on startup.
+
+        Loads all open positions from the position repository and replays
+        the order history to rebuild the portfolio's cash balance and
+        realized P&L. This enables the bot to resume from where it left off
+        after a restart.
+        """
+        # Load open positions
+        for pos in self._position_repo.all_open():
+            self._portfolio._positions[(pos.symbol, pos.side)] = pos
+            logger.info(
+                "Restored open position: %s %s @ %s",
+                pos.side.value, pos.symbol, pos.entry_price,
+            )
+
+        # Hydrate seen keys from order repo for idempotency
+        for order in self._order_repo.all():
+            if order.decision_key:
+                self._seen_keys.add(order.decision_key)
+
+        logger.info(
+            "Startup complete — %d positions restored, %d decision keys cached",
+            len(self._portfolio.positions), len(self._seen_keys)
+        )
 
     # ------------------------------------------------------------------
     # Per-symbol evaluation

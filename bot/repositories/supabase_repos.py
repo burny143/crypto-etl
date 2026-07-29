@@ -1,4 +1,4 @@
-"""Supabase-backed persistence for orders and positions."""
+"""Supabase-backed persistence for orders, positions, and equity curve."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from bot.domain.models import (
     OrderStatus,
     PaperOrder,
     PaperPosition,
+    PortfolioSnapshot,
     Side,
     Symbol,
 )
@@ -75,8 +76,14 @@ class SupabaseOrderRepository:
             "status": order.status.value,
             "decision_key": order.decision_key,
             "strategy_id": order.strategy_id,
+            "signal_timestamp": (
+                order.signal_timestamp.isoformat()
+                if order.signal_timestamp
+                else None
+            ),
             "reason": order.reason,
             "pnl": float(order.pnl) if order.pnl else None,
+            "fee": float(order.fee) if order.fee else None,
         }
 
     def _from_row(self, row: dict) -> PaperOrder:
@@ -89,11 +96,13 @@ class SupabaseOrderRepository:
             status=OrderStatus(row.get("status", "filled")),
             decision_key=row.get("decision_key", ""),
             strategy_id=row.get("strategy_id", ""),
+            signal_timestamp=_parse_ts(row.get("signal_timestamp")),
             reason=row.get("reason", ""),
             id=row.get("id"),
             opened_at=_parse_ts(row.get("opened_at")),
             filled_at=_parse_ts(row.get("filled_at")),
             closed_at=_parse_ts(row.get("closed_at")),
+            fee=to_decimal(row.get("fee")),
             pnl=to_decimal(row.get("pnl")),
         )
 
@@ -179,3 +188,40 @@ def _parse_ts(value: object) -> datetime | None:
         except ValueError:
             return None
     return None
+
+
+class SupabaseEquityCurveRepository:
+    """Persists ``PortfolioSnapshot`` records to the ``paper_equity_curve`` table."""
+
+    def __init__(self, client: Client) -> None:
+        self._client = client
+
+    def save(self, snapshot: PortfolioSnapshot) -> PortfolioSnapshot:
+        """Insert an equity curve snapshot."""
+        payload = {
+            "timestamp": snapshot.timestamp.isoformat(),
+            "equity": float(snapshot.equity),
+            "cash": float(snapshot.cash),
+            "margin_used": float(snapshot.margin_used),
+        }
+        resp = self._client.table("paper_equity_curve").insert(payload).execute()
+        if resp.data and len(resp.data) > 0:
+            snapshot.id = resp.data[0].get("id")
+        return snapshot
+
+    def all(self) -> list[PortfolioSnapshot]:
+        resp = (
+            self._client.table("paper_equity_curve")
+            .select("*")
+            .order("timestamp", desc=True)
+            .execute()
+        )
+        return [self._from_row(r) for r in (resp.data or [])]
+
+    def _from_row(self, row: dict) -> PortfolioSnapshot:
+        return PortfolioSnapshot(
+            timestamp=_parse_ts(row["timestamp"]),
+            equity=Decimal(str(row["equity"])),
+            cash=Decimal(str(row["cash"])),
+            margin_used=Decimal(str(row.get("margin_used", "0"))),
+        )

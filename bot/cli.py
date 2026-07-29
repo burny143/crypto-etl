@@ -247,6 +247,7 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
     from bot.portfolio.service import PortfolioService
     from bot.repositories.signal import SupabaseSignalRepository
     from bot.repositories.supabase_repos import (
+        SupabaseEquityCurveRepository,
         SupabaseOrderRepository,
         SupabasePositionRepository,
     )
@@ -268,6 +269,7 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
         order_repo = SupabaseOrderRepository(client)
         position_repo = SupabasePositionRepository(client)
         signal_repo = SupabaseSignalRepository(client)
+        equity_curve_repo = SupabaseEquityCurveRepository(client)
     else:
         from bot.repositories.memory import (
             InMemoryOrderRepository,
@@ -277,8 +279,9 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
         order_repo = InMemoryOrderRepository()
         position_repo = InMemoryPositionRepository()
         signal_repo = None  # engine defaults to in-memory
+        equity_curve_repo = None
 
-    return BotEngine(
+    engine = BotEngine(
         config=config,
         data_provider=data,
         registry=registry,
@@ -287,8 +290,15 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
         executor=executor,
         order_repo=order_repo,
         position_repo=position_repo,
+        equity_curve_repo=equity_curve_repo,
         signal_repo=signal_repo,
     )
+
+    # Hydrate state from Supabase on startup
+    if use_supabase:
+        engine.load_state_on_startup()
+
+    return engine
 
 
 # ---------------------------------------------------------------------------
