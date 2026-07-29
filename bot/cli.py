@@ -245,18 +245,8 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
     from bot.engine import BotEngine
     from bot.execution.executor import PaperExecutor
     from bot.portfolio.service import PortfolioService
-    from bot.repositories.signal import SupabaseSignalRepository
-    from bot.repositories.supabase_repos import (
-        SupabaseEquityCurveRepository,
-        SupabaseOrderRepository,
-        SupabasePositionRepository,
-    )
     from bot.risk.manager import RiskManager
     from bot.strategies.registry import StrategyRegistry
-
-    client = create_client(config.supabase_url, config.supabase_service_role_key)
-
-    data = SupabaseMarketData(client, config)
 
     registry = StrategyRegistry()
     registry.register_defaults()
@@ -266,6 +256,15 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
     executor = PaperExecutor()
 
     if use_supabase:
+        from bot.repositories.signal import SupabaseSignalRepository
+        from bot.repositories.supabase_repos import (
+            SupabaseEquityCurveRepository,
+            SupabaseOrderRepository,
+            SupabasePositionRepository,
+        )
+
+        client = create_client(config.supabase_url, config.supabase_service_role_key)
+        data = SupabaseMarketData(client, config)
         order_repo = SupabaseOrderRepository(client)
         position_repo = SupabasePositionRepository(client)
         signal_repo = SupabaseSignalRepository(client)
@@ -276,6 +275,11 @@ def build_bot(config: BotConfig, use_supabase: bool = True) -> BotEngine:
             InMemoryPositionRepository,
         )
 
+        # In-memory mode: use an in-memory data provider.
+        # Does NOT require Supabase credentials — fully offline-safe.
+        from bot.data.memory import InMemoryMarketData
+
+        data = InMemoryMarketData()
         order_repo = InMemoryOrderRepository()
         position_repo = InMemoryPositionRepository()
         signal_repo = None  # engine defaults to in-memory

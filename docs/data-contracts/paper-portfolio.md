@@ -41,6 +41,8 @@ Define the schema for paper trading state: orders, positions, portfolio equity, 
 | `current_price` | FLOAT | ✅ | Latest known price |
 | `unrealized_pnl` | FLOAT | ✅ | Current unrealized P&L |
 | `signal_id` | UUID | ❌ | Proposed: link to originating signal event |
+| `strategy_id` | TEXT | ❌ | Proposed: owning strategy identifier |
+| `status` | TEXT | ✅ | "open" or "closed" (added in V8 migration) |
 | `opened_at` | TIMESTAMPTZ | ✅ | Position open time |
 | `updated_at` | TIMESTAMPTZ | ✅ | Last update time |
 

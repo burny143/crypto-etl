@@ -10,14 +10,18 @@ ALTER TABLE paper_orders
     ADD COLUMN IF NOT EXISTS signal_timestamp TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS fee DOUBLE PRECISION DEFAULT 0;
 
--- Index for idempotent lookups by decision_key
-CREATE INDEX IF NOT EXISTS idx_paper_orders_decision_key ON paper_orders (decision_key);
+-- Unique index for idempotent lookups by decision_key (prevents duplicate orders)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_orders_decision_key ON paper_orders (decision_key);
 
 -- =============================================================================
--- 2. paper_positions — add strategy_id (session_id already in V7)
+-- 2. paper_positions — add strategy_id, status (session_id already in V7)
 -- =============================================================================
 ALTER TABLE paper_positions
-    ADD COLUMN IF NOT EXISTS strategy_id TEXT;
+    ADD COLUMN IF NOT EXISTS strategy_id TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed'));
+
+-- Index for filtering open positions
+CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions (status);
 
 -- =============================================================================
 -- 3. paper_signals — new table for strategy signal persistence
