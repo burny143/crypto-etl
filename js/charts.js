@@ -501,8 +501,8 @@
 
             // Now that currentSymbol is set correctly, trigger data loading and research
             updateSelectedPairInfo();
-            loadChartData();
-            loadResearch();
+            loadChartData().catch(e => console.warn('loadChartData error:', e));
+            loadResearch().catch(e => console.warn('loadResearch error:', e));
         }
 
         function updateSelectedPairInfo() {
@@ -535,8 +535,8 @@
         function selectSymbol(sym) {
             currentSymbol = sym;
             updateSelectedPairInfo();
-            loadChartData();
-            loadResearch();
+            loadChartData().catch(e => console.warn('loadChartData error:', e));
+            loadResearch().catch(e => console.warn('loadResearch error:', e));
         }
 
         // Indicator Math Functions
@@ -1815,7 +1815,13 @@
                 .order("datetime", { ascending: true });
             if (requestId !== loadRequestId) return;
 
-            if (!data) return;
+            if (!data || data.length === 0) {
+                historicalData = [];
+                candleSeries.setData([]);
+                volumeSeries.setData([]);
+                document.getElementById('headerPrice').innerText = '—';
+                return;
+            }
 
             // Rebuild the chart-ready OHLCV array — this was missing/recently removed
             historicalData = data.map(d => ({
@@ -1839,7 +1845,7 @@
             }
 
             candleSeries.setData(historicalData);
-            volumeSeries.setData(historicalData);
+            volumeSeries.setData(historicalData.map(d => ({ time: d.time, value: d.value, color: d.color })));
 
             // Clear existing active indicator series
             activeIndicators.forEach((val, key) => {
@@ -1855,8 +1861,8 @@
             const checkedNames = [];
             document.querySelectorAll('.ind-cb:checked').forEach(cb => { checkedNames.push(cb.value); });
             checkedNames.forEach(name => toggleIndicator(name, true, true));
-            refreshTradingUI();
-            loadStrategyResults();
+            refreshTradingUI().catch(e => console.warn('refreshTradingUI error:', e));
+            loadStrategyResults().catch(e => console.warn('loadStrategyResults error:', e));
         }
 
         // Fetch AI Research

@@ -158,7 +158,7 @@
   }
 
   function computeResearchEntry(symbol, bars) {
-    const close = getClose(bars), high = getHigh(bars), low = getLow(bars), vol = getVolume(bars);
+    const close = getClose(bars), high = getHigh(bars), low = getLow(bars);
     if (close.length < 30) return null;
 
     const cur = close[close.length - 1];
@@ -260,14 +260,14 @@
 
     // Check which symbols already have today's research.
     // Use UTC day boundary so behaviour is deterministic across timezones.
-    const todayUtc = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
+    const todayUtc = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
     // Fetch ALL already-researched symbols today with pagination
     const done = new Set();
     {
       let offset = 0; const PAGE = 1000;
       while (true) {
         const { data: page } = await supabaseClient.from('crypto_research')
-          .select('symbol').gte('created_at', todayUtc).range(offset, offset + PAGE - 1);
+          .select('symbol').gte('created_at', todayUtc).order('created_at', { ascending: true }).range(offset, offset + PAGE - 1);
         if (!page || page.length === 0) break;
         page.forEach(r => done.add(normalizeSymbol(r.symbol)));
         if (page.length < PAGE) break;
@@ -340,7 +340,7 @@
     const { error } = await supabaseClient.from('crypto_research').insert(entries);
     if (error) {
       console.warn('Batch insert error:', error);
-      label.textContent = `Saved — DB error: ${error.message}`;
+      label.textContent = `DB error: ${error.message}`;
     } else {
       label.textContent = `${entries.length} entries saved ✓`;
     }
@@ -548,19 +548,12 @@
       // so we skip calling it here to avoid a flash of incorrectly sorted rows.
       await loadPriceChanges();
       // Auto-trigger batch research for symbols that don't have today's research yet.
-      const todayUtcAuto = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
-      const autoDone = new Set();
-      {
-        let offset = 0; const PAGE = 1000;
-        while (true) {
-          const { data: page } = await supabaseClient.from('crypto_research')
-            .select('symbol').gte('created_at', todayUtcAuto).range(offset, offset + PAGE - 1);
-          if (!page || page.length === 0) break;
-          page.forEach(r => autoDone.add(normalizeSymbol(r.symbol)));
-          if (page.length < PAGE) break;
-          offset += PAGE;
-        }
-      }
+      const todayUtcAuto = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+      const autoDone = new Set(
+        researchData
+          .filter(r => r.created_at >= todayUtcAuto)
+          .map(r => normalizeSymbol(r.symbol))
+      );
       const autoNeed = aggregated.map(a => a.symbol).filter(s => s && s !== 'UNKNOWN' && !autoDone.has(s));
       if (autoNeed.length > 0) {
         setTimeout(() => { batchGenerateResearch().catch(e => console.warn('Batch research error:', e)); }, 300);
@@ -697,10 +690,10 @@
   function detailHTML(a) {
     const t = a.bullCount + a.bearCount + a.neutCount;
     // Round first two with Math.round, set third so they always sum to 100%
-    let bullP = t > 0 ? Math.round(a.bullCount / t * 100) : 0;
-    let bearP = t > 0 ? Math.round(a.bearCount / t * 100) : 0;
-    if (bullP + bearP > 100) { if (bullP >= bearP) bullP--; else bearP--; }
-    const neutP = 100 - bullP - bearP;
+    const bullP = t > 0 ? Math.round(100 * a.bullCount / t) : 0;
+    const bearP = t > 0 ? Math.round(100 * a.bearCount / t) : 0;
+    let neutP = 100 - bullP - bearP;
+    if (neutP < 0) neutP = 0;
 
     // Research history (latest 8)
     const rItems = (a.entries || []).slice(0, 8).map(e => `
