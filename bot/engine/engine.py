@@ -262,7 +262,7 @@ class BotEngine:
 
         # Lazily hydrate seen-keys cache from existing orders
         if not self._seen_keys:
-            self._seen_keys = {o.decision_key for o in self._order_repo}
+            self._seen_keys = {o.decision_key for o in self._order_repo.all()}
 
         decision = self._risk.check_order(
             intent, self._portfolio, quote, existing_keys=self._seen_keys
