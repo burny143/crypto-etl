@@ -278,6 +278,47 @@
                     <div id="ordersList" style="font-size:10px;color:var(--text-muted);text-align:center;padding:8px;">No orders yet.</div>
                 </div>
             </div>
+
+            <!-- Backtest Results -->
+            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+                <span>Backtest Results</span>
+                <button id="loadBacktestBtn" onclick="document.getElementById('backtestFileInput').click()" style="background:var(--accent); color:#fff; border:none; border-radius:4px; padding:3px 8px; cursor:pointer; font-size:11px;">Load</button>
+                <input type="file" id="backtestFileInput" accept=".json" style="display:none" onchange="loadBacktestFile(event)">
+            </div>
+            <div id="backtestResultsPanel" style="padding:8px 12px; font-size:11px; color:var(--text-muted);">
+                <div id="backtestSummary" style="text-align:center; padding:8px;">Load a backtest JSON file to see results.</div>
+                <div id="backtestMetrics" style="display:none;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700;" id="btReturn">—</div>
+                            <div style="font-size:9px; color:var(--text-muted);">Return</div>
+                        </div>
+                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700;" id="btSharpe">—</div>
+                            <div style="font-size:9px; color:var(--text-muted);">Sharpe</div>
+                        </div>
+                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700;" id="btDrawdown">—</div>
+                            <div style="font-size:9px; color:var(--text-muted);">Max DD</div>
+                        </div>
+                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
+                            <div style="font-size:18px; font-weight:700;" id="btWinRate">—</div>
+                            <div style="font-size:9px; color:var(--text-muted);">Win Rate</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:10px;">
+                        <span>Trades: <strong id="btTrades">0</strong></span>
+                        <span>Profit Factor: <strong id="btProfitFactor">—</strong></span>
+                    </div>
+                    <div style="margin-top:4px; font-size:9px; color:var(--text-muted);">
+                        Strategy: <span id="btStrategy">—</span>
+                        &middot; <span id="btSymbol">—</span> <span id="btTimeframe">—</span>
+                    </div>
+                    <div style="margin-top:6px; display:flex; gap:4px;">
+                        <button onclick="clearBacktestMarkers()" style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:4px; padding:3px 8px; cursor:pointer; font-size:10px; flex:1;">Clear Markers</button>
+                    </div>
+                </div>
+            </div>
         </aside>
     </div>
 

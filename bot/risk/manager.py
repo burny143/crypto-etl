@@ -106,6 +106,9 @@ class RiskManager:
     ) -> RiskDecision:
         if quote is None:
             return RiskDecision(False, "No quote available")
+        # Historical (non-live) quotes are from backtest data — skip staleness check
+        if not quote.is_live:
+            return RiskDecision(True)
         max_age = 120  # default; could come from config
         if quote.age_seconds > max_age:
             return RiskDecision(

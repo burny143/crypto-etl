@@ -98,6 +98,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Use in-memory storage instead of Supabase",
     )
 
+    # backtest
+    p_bt = sub.add_parser("backtest", help="Run a historical backtest.")
+    p_bt.add_argument("--symbol", type=str, required=True, help="Trading pair, e.g. BTC-USDT")
+    p_bt.add_argument(
+        "--timeframe", "-tf", type=str, default="1h", help="Bar interval (default: 1h)"
+    )
+    p_bt.add_argument(
+        "--strategy", "-s", type=str, default="rsi_reversion",
+        help="Strategy ID (default: rsi_reversion)"
+    )
+    p_bt.add_argument("--config", "-c", type=Path, default=None, help="Path to config.yaml")
+    p_bt.add_argument(
+        "--output", "-o", type=Path, default=None,
+        help="Write results as JSON to this file (default: print summary)"
+    )
+    p_bt.add_argument(
+        "--from", dest="start_date", type=str, default=None,
+        help="Start date YYYY-MM-DD (default: earliest available)"
+    )
+    p_bt.add_argument(
+        "--to", dest="end_date", type=str, default=None,
+        help="End date YYYY-MM-DD (default: latest available)"
+    )
+
     return parser
 
 
@@ -110,6 +134,8 @@ def _run_command(args: argparse.Namespace) -> None:
         _cmd_show_latest(args)
     elif args.command in ("run", "run-once"):
         _cmd_run(args)
+    elif args.command == "backtest":
+        _cmd_backtest(args)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +364,125 @@ def _cmd_run(args: argparse.Namespace) -> None:
                 print(f"  ⚠ {err}", file=sys.stderr)
     else:
         engine.run_forever()
+
+
+# ---------------------------------------------------------------------------
+# backtest
+# ---------------------------------------------------------------------------
+
+
+def _cmd_backtest(args: argparse.Namespace) -> None:
+    """Run a historical backtest and print / export results."""
+    import logging
+
+    from bot.backtesting import BacktestEngine, compute_metrics
+    from bot.data.supabase_adapter import SupabaseMarketData
+    from bot.strategies.registry import StrategyRegistry
+    from supabase import create_client
+
+    config = _load_config(args)
+    logging.basicConfig(
+        level=getattr(logging, config.logging_level, logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Symbol / timeframe
+    try:
+        symbol = Symbol(args.symbol.upper())
+    except Exception:
+        print(f"ERROR: invalid symbol {args.symbol!r}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        timeframe = Timeframe(args.timeframe.lower())
+    except ValueError:
+        print(f"ERROR: invalid timeframe {args.timeframe!r} (use 1h, 4h, 1d)", file=sys.stderr)
+        sys.exit(1)
+
+    # Load data
+    from decimal import Decimal
+
+    print(f"Loading historical data for {symbol} [{timeframe.value}] ...")
+    client = create_client(config.supabase_url, config.supabase_service_role_key)
+    data = SupabaseMarketData(client, config)
+    candles = list(data.fetch_ohlcv(symbol, timeframe, lookback=10_000))
+    if not candles:
+        print("ERROR: no historical data found", file=sys.stderr)
+        sys.exit(1)
+    print(f"  {len(candles)} bars loaded")
+
+    # Filter by date range if specified
+    if args.start_date:
+        from datetime import datetime as _dt, timezone
+
+        start_dt = _dt.fromisoformat(args.start_date).replace(tzinfo=timezone.utc)
+        candles = [c for c in candles if c.datetime >= start_dt]
+        print(f"  after date filter: {len(candles)} bars")
+    if args.end_date:
+        from datetime import datetime as _dt, timezone
+
+        end_dt = _dt.fromisoformat(args.end_date).replace(tzinfo=timezone.utc)
+        candles = [c for c in candles if c.datetime <= end_dt]
+        print(f"  after date filter: {len(candles)} bars")
+
+    # Build strategy
+    registry = StrategyRegistry()
+    registry.register_defaults()
+    strategy = registry.get(args.strategy)
+    print(f"Strategy: {strategy.name} ({strategy.id}) params={strategy.params}")
+
+    # Wire components
+    portfolio = PortfolioService(Decimal(str(config.starting_balance)))
+    risk = RiskManager(config)
+    executor = PaperExecutor()
+
+    # Run backtest
+    print("Running backtest ...")
+    engine = BacktestEngine(strategy, risk, executor, portfolio)
+    result = engine.run(candles, symbol, timeframe)
+
+    # Display results
+    m = result.metrics
+    print()
+    print("=" * 60)
+    print(f"  Backtest Results — {symbol} [{timeframe.value}]")
+    print(f"  Strategy: {result.strategy_id}")
+    print("=" * 60)
+    print(f"  Bars:          {result.bar_count}")
+    print(f"  Trades:        {m.total_trades}")
+    print(f"  Start capital: ${result.starting_capital:,.2f}")
+    print(f"  Final equity:  ${result.final_equity:,.2f}")
+    print(f"  Return:        {m.total_return_pct * 100:+.2f}%")
+    print(f"  Sharpe:        {m.sharpe_ratio:.2f}")
+    print(f"  Max drawdown:  {m.max_drawdown_pct * 100:.2f}%")
+    print(f"  Win rate:      {m.win_rate * 100:.1f}%")
+    print(f"  Profit factor: {m.profit_factor:.2f}")
+    print(f"  Avg trade:     ${float(m.avg_trade_pnl):+.2f}")
+    print(f"  Avg holding:   {m.avg_holding_bars:.1f} bars")
+    print()
+
+    # Show last 5 trades
+    if result.trades:
+        print("  Recent trades:")
+        for t in result.trades[-5:]:
+            exit_str = t.exit_time.isoformat() if t.exit_time else "open"
+            pnl_str = f"${float(t.pnl):+.2f}" if t.pnl is not None else "?"
+            print(
+                f"    {t.side.value:5s} {t.entry_time.date()} → {exit_str[:10]} "
+                f"qty={float(t.quantity):.4f} "
+                f"pnl={pnl_str}"
+            )
+
+    # Export to JSON
+    if args.output:
+        import json as _json
+
+        data_dict = result.to_dict()
+        with open(args.output, "w", encoding="utf-8") as f:
+            _json.dump(data_dict, f, indent=2, default=str)
+        print(f"  Results written to {args.output}")
+
+    print("=" * 60)
 
 
 if __name__ == "__main__":

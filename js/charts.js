@@ -1892,6 +1892,103 @@
             }).join("");
         }
 
+        // ── Backtest Results ──
+
+        let backtestMarkers = [];
+
+        window.loadBacktestFile = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    renderBacktestResults(data);
+                } catch (err) {
+                    document.getElementById('backtestSummary').textContent = 'Error: ' + err.message;
+                    document.getElementById('backtestSummary').style.display = 'block';
+                    document.getElementById('backtestMetrics').style.display = 'none';
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // allow re-selecting same file
+        };
+
+        window.renderBacktestResults = function(data) {
+            const m = data.metrics || {};
+            const trades = data.trades || [];
+
+            // Update summary
+            document.getElementById('backtestSummary').style.display = 'none';
+            document.getElementById('backtestMetrics').style.display = 'block';
+
+            // Format helpers
+            const pct = (v) => (v * 100).toFixed(2) + '%';
+            const num = (v) => v != null && isFinite(v) ? v.toFixed(2) : '—';
+
+            document.getElementById('btReturn').textContent = pct(m.total_return_pct);
+            document.getElementById('btReturn').style.color = m.total_return_pct >= 0 ? 'var(--up)' : 'var(--down)';
+            document.getElementById('btSharpe').textContent = num(m.sharpe_ratio);
+            document.getElementById('btDrawdown').textContent = pct(m.max_drawdown_pct);
+            document.getElementById('btWinRate').textContent = pct(m.win_rate);
+            document.getElementById('btTrades').textContent = m.total_trades || 0;
+
+            const pf = m.profit_factor;
+            document.getElementById('btProfitFactor').textContent = pf === Infinity ? '∞' : num(pf);
+            document.getElementById('btStrategy').textContent = data.strategy_id || '—';
+            document.getElementById('btSymbol').textContent = data.symbol || '—';
+            document.getElementById('btTimeframe').textContent = data.timeframe || '—';
+
+            // Render trade markers on chart
+            clearBacktestMarkers();
+            if (trades.length && typeof candleMarkers !== 'undefined' && candleMarkers) {
+                const markers = [];
+                trades.forEach(t => {
+                    const entryTime = t.entry_time ? Math.floor(new Date(t.entry_time).getTime() / 1000) : null;
+                    const exitTime = t.exit_time ? Math.floor(new Date(t.exit_time).getTime() / 1000) : null;
+
+                    if (entryTime) {
+                        markers.push({
+                            time: entryTime,
+                            position: t.side === 'long' ? 'belowBar' : 'aboveBar',
+                            color: t.side === 'long' ? '#089981' : '#f23645',
+                            shape: 'arrowUp',
+                            text: t.side === 'long' ? 'BT LONG' : 'BT SHORT',
+                        });
+                    }
+                    if (exitTime) {
+                        const isProfit = t.pnl != null && t.pnl > 0;
+                        markers.push({
+                            time: exitTime,
+                            position: 'aboveBar',
+                            color: isProfit ? '#089981' : '#f23645',
+                            shape: 'arrowDown',
+                            text: isProfit ? 'TP' : 'SL',
+                        });
+                    }
+                });
+                // Add to existing markers rather than replacing
+                backtestMarkers = markers;
+                const existing = candleMarkers._markers || [];
+                candleMarkers.setMarkers([...existing, ...markers]);
+            }
+        };
+
+        window.clearBacktestMarkers = function() {
+            if (typeof candleMarkers !== 'undefined' && candleMarkers) {
+                const existing = candleMarkers._markers || [];
+                // Filter out backtest markers (remove any we added)
+                const nonBt = existing.filter(m => {
+                    const text = m.text || '';
+                    return !text.startsWith('BT ') && text !== 'TP' && text !== 'SL';
+                });
+                candleMarkers.setMarkers(nonBt);
+            }
+            backtestMarkers = [];
+        };
+
+        // ── End Backtest Results ──
+
         // Delegated click for strategy items
         document.getElementById('stratFeed').addEventListener('click', (e) => {
             const item = e.target.closest('.strat-item');
