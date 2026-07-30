@@ -94,7 +94,7 @@ mypy bot/
 - Root repo tracks `crypto-etl/` as a **gitlink** (submodule-like, no `.gitmodules`)
 - Nested repo at `crypto-etl/` has its own `.git` and branch `main`
 - After committing in nested repo: `cd .. && git add crypto-etl && git commit -m "update gitlink"`
-- Current nested HEAD: `06292df` (parent: `6dd72c8`)
+- Current nested HEAD: `9a8a23e` (parent: `3b75092`)
 
 ## Supabase Project
 
