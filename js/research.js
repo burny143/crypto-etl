@@ -1,6 +1,38 @@
 // research.js — Research dashboard UI logic
 // Depends on shared.js (must be loaded first)
 
+// ── Dependency Guard ──
+(function() {
+  const required = {
+    supabaseClient: 'object',
+    escapeHtml: 'function',
+    getClose: 'function',
+    getHigh: 'function',
+    getLow: 'function',
+    getVolume: 'function',
+    getTime: 'function',
+    computeSMA: 'function',
+    computeEMA: 'function',
+    computeRSI: 'function',
+    computeATR: 'function',
+    computeADX: 'function',
+    computeOBV: 'function',
+    computeBB: 'function',
+    computeKC: 'function'
+  };
+  const missing = [];
+  for (const [name, type] of Object.entries(required)) {
+    if (typeof window[name] !== type) missing.push(name);
+  }
+  if (missing.length) {
+    const msg = `research.js: missing shared.js dependencies → ${missing.join(', ')}`;
+    console.error(msg);
+    const tbody = document.getElementById('tableBody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><h3>Dependency Error</h3><p>${escapeHtml ? escapeHtml(msg) : msg}</p></div></td></tr>`;
+    throw new Error(msg);
+  }
+})();
+
 // ── State ──
   let aggregated = [];
   let expandedSymbol = null;
@@ -446,7 +478,24 @@
       if (runResp.error) console.warn('research_runs query:', runResp.error);
 
       const [researchResp, stratsResp, watchResp, posResp] = await Promise.all([
-        supabaseClient.from('crypto_research').select('*').order('created_at', { ascending: false }),
+        (async () => {
+          const PAGE = 1000;
+          let offset = 0;
+          let all = [];
+          while (true) {
+            const { data: page, error } = await supabaseClient
+              .from('crypto_research')
+              .select('*')
+              .order('created_at', { ascending: false })
+              .range(offset, offset + PAGE - 1);
+            if (error) { console.warn('research query (page):', error); break; }
+            if (!page || page.length === 0) break;
+            all.push(...page);
+            if (page.length < PAGE) break;
+            offset += PAGE;
+          }
+          return { data: all, error: null };
+        })(),
         // Filter strategy_results to latest run_id only to avoid duplicate / stale results
         latestRunId
           ? supabaseClient.from('strategy_results').select('strategy_name, symbol, timeframe, sharpe_ratio, win_rate, total_return_pct, trade_count').gte('trade_count', 30).eq('run_id', latestRunId).order('sharpe_ratio', { ascending: false })
@@ -590,7 +639,15 @@
           if (ca == null && cb == null) cmp = 0;
           else if (ca == null) cmp = 1;
           else if (cb == null) cmp = -1;
-          else cmp = ca - cb;
+          else {
+            // Sort by sentiment category first, then by value within category
+            // bullish (>1) = 2, neutral (-1..1) = 1, bearish (<-1) = 0
+            const sa = ca > 1 ? 2 : ca < -1 ? 0 : 1;
+            const sb = cb > 1 ? 2 : cb < -1 ? 0 : 1;
+            cmp = sa - sb;
+            // Within same category, sort by actual value
+            if (cmp === 0) cmp = ca - cb;
+          }
           break;
         }
         case 'sentiment': {
