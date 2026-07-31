@@ -1,3 +1,18 @@
 
 # Backups
 .backups/
+trading-research-backup/
+
+# Build artifacts
+node_modules/
+frontend/node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files
+.env
+.env.*
+
+# Reference material (read-only, do not commit)
+vibe-trading/
