@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "Trader's Lab" [level=1] [ref=e3]
+    - generic [ref=e4]: Research Dashboard
+    - link "← Back to Charts" [ref=e6] [cursor=pointer]:
+      - /url: charts.html
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: Search
+      - textbox "Symbol..." [ref=e10]
+      - generic [ref=e11]: Sentiment
+      - combobox [ref=e12]:
+        - option "All" [selected]
+        - option "Bullish"
+        - option "Bearish"
+        - option "Neutral"
+      - generic [ref=e13]: Sort
+      - combobox [ref=e14]:
+        - option "Sentiment" [selected]
+        - option "Change"
+        - option "Confidence"
+        - option "Last Updated"
+        - option "Symbol"
+      - generic [ref=e15]:
+        - generic [ref=e16]: —
+        - generic [ref=e17]: —
+        - generic [ref=e20]: —
+        - generic [ref=e23]: —
+      - generic [ref=e26]:
+        - generic [ref=e27]: Chg
+        - generic [ref=e28]:
+          - button "1D" [ref=e29] [cursor=pointer]
+          - button "1W" [ref=e30] [cursor=pointer]
+          - button "1M" [ref=e31] [cursor=pointer]
+          - button "1Y" [ref=e32] [cursor=pointer]
+      - button "Generate Insights" [ref=e33] [cursor=pointer]
+    - table [ref=e35]:
+      - rowgroup [ref=e36]:
+        - row [ref=e37]:
+          - columnheader [ref=e38] [cursor=pointer]
+          - columnheader "Symbol" [ref=e39] [cursor=pointer]
+          - columnheader "Change 1D" [ref=e40] [cursor=pointer]
+          - columnheader "Sentiment" [ref=e41] [cursor=pointer]
+          - columnheader "Confidence" [ref=e42] [cursor=pointer]
+          - columnheader "Best Strategy" [ref=e43] [cursor=pointer]
+          - columnheader "Win Rate" [ref=e44] [cursor=pointer]
+          - columnheader "Last Research" [ref=e45] [cursor=pointer]
+          - columnheader "Entries" [ref=e46] [cursor=pointer]
+      - rowgroup [ref=e47]:
+        - row [ref=e48]:
+          - cell "Loading research data…" [ref=e49]

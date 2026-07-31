@@ -1,0 +1,368 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "Trader's Lab" [level=1] [ref=e3]
+    - generic [ref=e4]: Research Dashboard
+    - link "← Back to Charts" [ref=e6] [cursor=pointer]:
+      - /url: charts.html
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: Search
+      - textbox "Symbol..." [ref=e10]
+      - generic [ref=e11]: Sentiment
+      - combobox [ref=e12]:
+        - option "All" [selected]
+        - option "Bullish"
+        - option "Bearish"
+        - option "Neutral"
+      - generic [ref=e13]: Sort
+      - combobox [ref=e14]:
+        - option "Sentiment" [selected]
+        - option "Change"
+        - option "Confidence"
+        - option "Last Updated"
+        - option "Symbol"
+      - generic [ref=e15]:
+        - generic [ref=e16]: 29 pairs
+        - generic [ref=e17]: "25"
+        - generic [ref=e20]: "0"
+        - generic [ref=e23]: "4"
+      - generic [ref=e26]:
+        - generic [ref=e27]: Chg
+        - generic [ref=e28]:
+          - button "1D" [ref=e29] [cursor=pointer]
+          - button "1W" [ref=e30] [cursor=pointer]
+          - button "1M" [ref=e31] [cursor=pointer]
+          - button "1Y" [ref=e32] [cursor=pointer]
+      - button "Generate Insights" [ref=e33] [cursor=pointer]
+    - table [ref=e35]:
+      - rowgroup [ref=e36]:
+        - row [ref=e37]:
+          - columnheader [ref=e38] [cursor=pointer]
+          - columnheader "Symbol" [ref=e39] [cursor=pointer]
+          - columnheader "Change 1D" [ref=e40] [cursor=pointer]
+          - columnheader "Sentiment" [ref=e41] [cursor=pointer]
+          - columnheader "Confidence" [ref=e42] [cursor=pointer]
+          - columnheader "Best Strategy" [ref=e43] [cursor=pointer]
+          - columnheader "Win Rate" [ref=e44] [cursor=pointer]
+          - columnheader "Last Research" [ref=e45] [cursor=pointer]
+          - columnheader "Entries" [ref=e46] [cursor=pointer]
+      - rowgroup [ref=e47]:
+        - row [ref=e51] [cursor=pointer]:
+          - cell "▶" [ref=e52]
+          - cell [ref=e53]:
+            - strong [ref=e54]: ADA-USD
+          - cell "—" [ref=e55]
+          - cell "BULLISH" [ref=e56]
+          - cell "85%" [ref=e58]
+          - cell "macd crossover" [ref=e59]
+          - cell "55.2%" [ref=e60]
+          - cell "8h ago" [ref=e61]
+          - cell "1" [ref=e62]
+        - row [ref=e63] [cursor=pointer]:
+          - cell "▶" [ref=e64]
+          - cell [ref=e65]:
+            - strong [ref=e66]: APT-USD
+          - cell "—" [ref=e67]
+          - cell "BULLISH" [ref=e68]
+          - cell "85%" [ref=e70]
+          - cell "—" [ref=e71]
+          - cell "—" [ref=e72]
+          - cell "8h ago" [ref=e73]
+          - cell "1" [ref=e74]
+        - row [ref=e75] [cursor=pointer]:
+          - cell "▶" [ref=e76]
+          - cell [ref=e77]:
+            - strong [ref=e78]: ARB-USD
+          - cell "—" [ref=e79]
+          - cell "BULLISH" [ref=e80]
+          - cell "85%" [ref=e82]
+          - cell "—" [ref=e83]
+          - cell "—" [ref=e84]
+          - cell "8h ago" [ref=e85]
+          - cell "1" [ref=e86]
+        - row [ref=e87] [cursor=pointer]:
+          - cell "▶" [ref=e88]
+          - cell [ref=e89]:
+            - strong [ref=e90]: ATOM-USD
+          - cell "—" [ref=e91]
+          - cell "BULLISH" [ref=e92]
+          - cell "85%" [ref=e94]
+          - cell "rsi vol combo" [ref=e95]
+          - cell "56.4%" [ref=e96]
+          - cell "8h ago" [ref=e97]
+          - cell "1" [ref=e98]
+        - row [ref=e99] [cursor=pointer]:
+          - cell "▶" [ref=e100]
+          - cell [ref=e101]:
+            - strong [ref=e102]: AVAX-USD
+          - cell "—" [ref=e103]
+          - cell "BULLISH" [ref=e104]
+          - cell "85%" [ref=e106]
+          - cell "rsi reversion" [ref=e107]
+          - cell "74.1%" [ref=e108]
+          - cell "8h ago" [ref=e109]
+          - cell "1" [ref=e110]
+        - row [ref=e111] [cursor=pointer]:
+          - cell "▶" [ref=e112]
+          - cell [ref=e113]:
+            - strong [ref=e114]: BCH-USD
+          - cell "—" [ref=e115]
+          - cell "BULLISH" [ref=e116]
+          - cell "85%" [ref=e118]
+          - cell "rsi reversion" [ref=e119]
+          - cell "65.2%" [ref=e120]
+          - cell "8h ago" [ref=e121]
+          - cell "1" [ref=e122]
+        - row [ref=e123] [cursor=pointer]:
+          - cell "▶" [ref=e124]
+          - cell [ref=e125]:
+            - strong [ref=e126]: BNB-USD
+          - cell "—" [ref=e127]
+          - cell "BULLISH" [ref=e128]
+          - cell "85%" [ref=e130]
+          - cell "rsi reversion" [ref=e131]
+          - cell "70.5%" [ref=e132]
+          - cell "8h ago" [ref=e133]
+          - cell "1" [ref=e134]
+        - row [ref=e135] [cursor=pointer]:
+          - cell "▶" [ref=e136]
+          - cell [ref=e137]:
+            - strong [ref=e138]: DOGE-USD
+          - cell "—" [ref=e139]
+          - cell "BULLISH" [ref=e140]
+          - cell "85%" [ref=e142]
+          - cell "bb reversion" [ref=e143]
+          - cell "65.3%" [ref=e144]
+          - cell "8h ago" [ref=e145]
+          - cell "1" [ref=e146]
+        - row [ref=e147] [cursor=pointer]:
+          - cell "▶" [ref=e148]
+          - cell [ref=e149]:
+            - strong [ref=e150]: DOT-USD
+          - cell "—" [ref=e151]
+          - cell "BULLISH" [ref=e152]
+          - cell "85%" [ref=e154]
+          - cell "rsi reversion" [ref=e155]
+          - cell "71.0%" [ref=e156]
+          - cell "8h ago" [ref=e157]
+          - cell "1" [ref=e158]
+        - row [ref=e159] [cursor=pointer]:
+          - cell "▶" [ref=e160]
+          - cell [ref=e161]:
+            - strong [ref=e162]: ETC-USD
+          - cell "—" [ref=e163]
+          - cell "BULLISH" [ref=e164]
+          - cell "85%" [ref=e166]
+          - cell "bb reversion" [ref=e167]
+          - cell "66.7%" [ref=e168]
+          - cell "8h ago" [ref=e169]
+          - cell "1" [ref=e170]
+        - row [ref=e171] [cursor=pointer]:
+          - cell "▶" [ref=e172]
+          - cell [ref=e173]:
+            - strong [ref=e174]: FIL-USD
+          - cell "—" [ref=e175]
+          - cell "BULLISH" [ref=e176]
+          - cell "85%" [ref=e178]
+          - cell "—" [ref=e179]
+          - cell "—" [ref=e180]
+          - cell "8h ago" [ref=e181]
+          - cell "1" [ref=e182]
+        - row [ref=e183] [cursor=pointer]:
+          - cell "▶" [ref=e184]
+          - cell [ref=e185]:
+            - strong [ref=e186]: INJ-USD
+          - cell "—" [ref=e187]
+          - cell "BULLISH" [ref=e188]
+          - cell "85%" [ref=e190]
+          - cell "—" [ref=e191]
+          - cell "—" [ref=e192]
+          - cell "8h ago" [ref=e193]
+          - cell "1" [ref=e194]
+        - row [ref=e195] [cursor=pointer]:
+          - cell "▶" [ref=e196]
+          - cell [ref=e197]:
+            - strong [ref=e198]: LINK-USD
+          - cell "—" [ref=e199]
+          - cell "BULLISH" [ref=e200]
+          - cell "85%" [ref=e202]
+          - cell "rsi vol combo" [ref=e203]
+          - cell "78.4%" [ref=e204]
+          - cell "8h ago" [ref=e205]
+          - cell "1" [ref=e206]
+        - row [ref=e207] [cursor=pointer]:
+          - cell "▶" [ref=e208]
+          - cell [ref=e209]:
+            - strong [ref=e210]: LTC-USD
+          - cell "—" [ref=e211]
+          - cell "BULLISH" [ref=e212]
+          - cell "85%" [ref=e214]
+          - cell "stoch rsi" [ref=e215]
+          - cell "53.0%" [ref=e216]
+          - cell "8h ago" [ref=e217]
+          - cell "1" [ref=e218]
+        - row [ref=e219] [cursor=pointer]:
+          - cell "▶" [ref=e220]
+          - cell [ref=e221]:
+            - strong [ref=e222]: NEAR-USD
+          - cell "—" [ref=e223]
+          - cell "BULLISH" [ref=e224]
+          - cell "85%" [ref=e226]
+          - cell "—" [ref=e227]
+          - cell "—" [ref=e228]
+          - cell "8h ago" [ref=e229]
+          - cell "1" [ref=e230]
+        - row [ref=e231] [cursor=pointer]:
+          - cell "▶" [ref=e232]
+          - cell [ref=e233]:
+            - strong [ref=e234]: OP-USD
+          - cell "—" [ref=e235]
+          - cell "BULLISH" [ref=e236]
+          - cell "85%" [ref=e238]
+          - cell "—" [ref=e239]
+          - cell "—" [ref=e240]
+          - cell "8h ago" [ref=e241]
+          - cell "1" [ref=e242]
+        - row [ref=e243] [cursor=pointer]:
+          - cell "▶" [ref=e244]
+          - cell [ref=e245]:
+            - strong [ref=e246]: POL-USD
+          - cell "—" [ref=e247]
+          - cell "BULLISH" [ref=e248]
+          - cell "85%" [ref=e250]
+          - cell "—" [ref=e251]
+          - cell "—" [ref=e252]
+          - cell "8h ago" [ref=e253]
+          - cell "1" [ref=e254]
+        - row [ref=e255] [cursor=pointer]:
+          - cell "▶" [ref=e256]
+          - cell [ref=e257]:
+            - strong [ref=e258]: SEI-USD
+          - cell "—" [ref=e259]
+          - cell "BULLISH" [ref=e260]
+          - cell "85%" [ref=e262]
+          - cell "—" [ref=e263]
+          - cell "—" [ref=e264]
+          - cell "8h ago" [ref=e265]
+          - cell "1" [ref=e266]
+        - row [ref=e267] [cursor=pointer]:
+          - cell "▶" [ref=e268]
+          - cell [ref=e269]:
+            - strong [ref=e270]: SOL-USD
+          - cell "—" [ref=e271]
+          - cell "BULLISH" [ref=e272]
+          - cell "85%" [ref=e274]
+          - cell "bb reversion" [ref=e275]
+          - cell "69.1%" [ref=e276]
+          - cell "8h ago" [ref=e277]
+          - cell "1" [ref=e278]
+        - row [ref=e279] [cursor=pointer]:
+          - cell "▶" [ref=e280]
+          - cell [ref=e281]:
+            - strong [ref=e282]: STRK-USD
+          - cell "—" [ref=e283]
+          - cell "BULLISH" [ref=e284]
+          - cell "85%" [ref=e286]
+          - cell "—" [ref=e287]
+          - cell "—" [ref=e288]
+          - cell "8h ago" [ref=e289]
+          - cell "1" [ref=e290]
+        - row [ref=e291] [cursor=pointer]:
+          - cell "▶" [ref=e292]
+          - cell [ref=e293]:
+            - strong [ref=e294]: SUI-USD
+          - cell "—" [ref=e295]
+          - cell "BULLISH" [ref=e296]
+          - cell "85%" [ref=e298]
+          - cell "—" [ref=e299]
+          - cell "—" [ref=e300]
+          - cell "8h ago" [ref=e301]
+          - cell "1" [ref=e302]
+        - row [ref=e303] [cursor=pointer]:
+          - cell "▶" [ref=e304]
+          - cell [ref=e305]:
+            - strong [ref=e306]: TIA-USD
+          - cell "—" [ref=e307]
+          - cell "BULLISH" [ref=e308]
+          - cell "85%" [ref=e310]
+          - cell "—" [ref=e311]
+          - cell "—" [ref=e312]
+          - cell "8h ago" [ref=e313]
+          - cell "1" [ref=e314]
+        - row [ref=e315] [cursor=pointer]:
+          - cell "▶" [ref=e316]
+          - cell [ref=e317]:
+            - strong [ref=e318]: TRX-USD
+          - cell "—" [ref=e319]
+          - cell "BULLISH" [ref=e320]
+          - cell "85%" [ref=e322]
+          - cell "—" [ref=e323]
+          - cell "—" [ref=e324]
+          - cell "8h ago" [ref=e325]
+          - cell "1" [ref=e326]
+        - row [ref=e327] [cursor=pointer]:
+          - cell "▶" [ref=e328]
+          - cell [ref=e329]:
+            - strong [ref=e330]: UNI-USD
+          - cell "—" [ref=e331]
+          - cell "BULLISH" [ref=e332]
+          - cell "85%" [ref=e334]
+          - cell "stoch rsi" [ref=e335]
+          - cell "59.1%" [ref=e336]
+          - cell "8h ago" [ref=e337]
+          - cell "1" [ref=e338]
+        - row [ref=e339] [cursor=pointer]:
+          - cell "▶" [ref=e340]
+          - cell [ref=e341]:
+            - strong [ref=e342]: XLM-USD
+          - cell "—" [ref=e343]
+          - cell "BULLISH" [ref=e344]
+          - cell "85%" [ref=e346]
+          - cell "macd crossover" [ref=e347]
+          - cell "56.0%" [ref=e348]
+          - cell "8h ago" [ref=e349]
+          - cell "1" [ref=e350]
+        - row [ref=e351] [cursor=pointer]:
+          - cell "▶" [ref=e352]
+          - cell [ref=e353]:
+            - strong [ref=e354]: BTC-USD
+          - cell "—" [ref=e355]
+          - cell "NEUTRAL" [ref=e356]
+          - cell "45%" [ref=e358]
+          - cell "stoch rsi" [ref=e359]
+          - cell "61.0%" [ref=e360]
+          - cell "10h ago" [ref=e361]
+          - cell "7" [ref=e362]
+        - row [ref=e363] [cursor=pointer]:
+          - cell "▶" [ref=e364]
+          - cell [ref=e365]:
+            - strong [ref=e366]: ETH-USD
+          - cell "—" [ref=e367]
+          - cell "NEUTRAL" [ref=e368]
+          - cell "70%" [ref=e370]
+          - cell "stoch rsi" [ref=e371]
+          - cell "58.7%" [ref=e372]
+          - cell "8h ago" [ref=e373]
+          - cell "2" [ref=e374]
+        - row [ref=e375] [cursor=pointer]:
+          - cell "▶" [ref=e376]
+          - cell [ref=e377]:
+            - strong [ref=e378]: LTC-USDT
+          - cell "—" [ref=e379]
+          - cell "NEUTRAL" [ref=e380]
+          - cell "20%" [ref=e382]
+          - cell "—" [ref=e383]
+          - cell "—" [ref=e384]
+          - cell "8h ago" [ref=e385]
+          - cell "2" [ref=e386]
+        - row [ref=e387] [cursor=pointer]:
+          - cell "▶" [ref=e388]
+          - cell [ref=e389]:
+            - strong [ref=e390]: XRP-USD
+          - cell "—" [ref=e391]
+          - cell "NEUTRAL" [ref=e392]
+          - cell "53%" [ref=e394]
+          - cell "stoch rsi" [ref=e395]
+          - cell "61.4%" [ref=e396]
+          - cell "8h ago" [ref=e397]
+          - cell "2" [ref=e398]
