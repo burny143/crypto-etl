@@ -89,18 +89,28 @@
     return (s || '').replace(/-USDT$/i, '-USD').trim().toUpperCase();
   }
 
+  function safePctChange(cur, prev) {
+    const curValue = Number(cur);
+    const prevValue = Number(prev);
+    if (!Number.isFinite(curValue) || !Number.isFinite(prevValue) || prevValue === 0) return null;
+    const pct = ((curValue - prevValue) / prevValue) * 100;
+    return Number.isFinite(pct) ? pct : null;
+  }
+
+  window.safePctChange = safePctChange;
+
   function symbolVariantsFor(sym) {
-    // Build a set of symbol variants to try when querying crypto_historical
-    const variants = new Set([sym]);
-    if (sym.endsWith('-USD')) {
-      variants.add(sym.replace('-USD', '-USDT'));
-    } else if (sym.endsWith('-USDT')) {
-      // Already fine, keep as-is
+    const normalized = (sym || '').trim().toUpperCase();
+    const variants = [normalized];
+    if (normalized.endsWith('-USD')) {
+      variants.push(normalized.replace(/-USD$/, '-USDT'));
+    } else if (normalized.endsWith('-USDT')) {
+      variants.push(normalized.replace(/-USDT$/, '-USD'));
     } else {
-      variants.add(sym + '-USDT');
-      variants.add(sym + '-USD');
+      variants.push(`${normalized}-USDT`);
+      variants.push(`${normalized}-USD`);
     }
-    return variants;
+    return [...new Set(variants)];
   }
 
   function effectiveSentiment(a) {
@@ -287,6 +297,7 @@
       status.querySelector('.rs-spinner').style.display = 'none';
       setTimeout(() => { status.style.display = 'none'; }, 3000);
       researchInProgress = false;
+      retryPending = false;
       return;
     }
 
@@ -312,6 +323,7 @@
       label.textContent = 'All symbols researched today ✓';
       setTimeout(() => { status.style.display = 'none'; }, 4000);
       researchInProgress = false;
+      retryPending = false;
       return;
     }
 
@@ -426,24 +438,27 @@
           const now = Date.now();
           const day = 86400000;
           const ch = {};
+          const lookbackTargets = {
+            '1d': { w1: 7 * day, m1: 30 * day, y1: 365 * day },
+            '1h': { w1: 7 * day, m1: 30 * day, y1: 365 * day },
+            '4h': { w1: 7 * day, m1: 30 * day, y1: 365 * day },
+          };
+          const tfConfig = lookbackTargets[tf] || lookbackTargets['1d'];
           if (data.length >= 2) {
             const prev = data.find(d => Date.parse(d.datetime) <= now - day) || data[data.length - 1];
-            ch.d1 = prev ? (cur - prev.close) / prev.close * 100 : null;
+            ch.d1 = prev ? safePctChange(cur, prev.close) : null;
           }
-          if (tf === '1d' && data.length >= 7) {
-            const w = findClosest(new Date(now - 7 * day).toISOString());
-            ch.w1 = w ? (cur - w) / w * 100 : null;
-          } else if (tf !== '1d' && data.length >= 170) {
-            const w = findClosest(new Date(now - 7 * day).toISOString());
-            ch.w1 = w ? (cur - w) / w * 100 : null;
+          if (data.length >= (tf === '1d' ? 7 : tf === '1h' ? 168 : 42)) {
+            const w = findClosest(new Date(now - tfConfig.w1).toISOString());
+            ch.w1 = w != null ? safePctChange(cur, w) : null;
           }
-          if (tf === '1d' && data.length >= 30) {
-            const m = findClosest(new Date(now - 30 * day).toISOString());
-            ch.m1 = m ? (cur - m) / m * 100 : null;
+          if (data.length >= (tf === '1d' ? 30 : tf === '1h' ? 720 : 180)) {
+            const m = findClosest(new Date(now - tfConfig.m1).toISOString());
+            ch.m1 = m != null ? safePctChange(cur, m) : null;
           }
-          if (tf === '1d' && data.length >= 365) {
-            const y = findClosest(new Date(now - 365 * day).toISOString());
-            ch.y1 = y ? (cur - y) / y * 100 : null;
+          if (data.length >= (tf === '1d' ? 365 : tf === '1h' ? 8760 : 2190)) {
+            const y = findClosest(new Date(now - tfConfig.y1).toISOString());
+            ch.y1 = y != null ? safePctChange(cur, y) : null;
           }
           if (ch.d1 != null) { result[symbol] = ch; foundAny = true; return; }
         }

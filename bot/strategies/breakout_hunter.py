@@ -39,7 +39,6 @@ class BreakoutHunterStrategy:
       - ``atr_period``: ATR period for volatility calculation (default 14)
       - ``min_volume_ratio``: Minimum volume expansion to confirm breakout (default 1.2)
       - ``min_breakout_strength``: Minimum price move vs ATR to filter noise (default 0.5)
-      - ``min_candle_range``: Minimum candle range as % of price (default 0.002)
       - ``leverage_base``: Base leverage for strong signals (default 1.5)
       - ``leverage_max``: Maximum leverage cap (default 3.0)
       - ``leverage_min``: Minimum leverage floor (default 0.5)
@@ -55,7 +54,6 @@ class BreakoutHunterStrategy:
         atr_period: int = 14,
         min_volume_ratio: float = 1.2,
         min_breakout_strength: float = 0.5,
-        min_candle_range: float = 0.002,
         leverage_base: float = 1.5,
         leverage_max: float = 3.0,
         leverage_min: float = 0.5,
@@ -68,8 +66,6 @@ class BreakoutHunterStrategy:
             raise ValueError("min_volume_ratio must be >= 1.0")
         if min_breakout_strength <= 0:
             raise ValueError("min_breakout_strength must be > 0")
-        if min_candle_range <= 0:
-            raise ValueError("min_candle_range must be > 0")
         if leverage_max < leverage_min:
             raise ValueError("leverage_max must be >= leverage_min")
         if trend_period < 2:
@@ -80,7 +76,6 @@ class BreakoutHunterStrategy:
         self._atr_period = atr_period
         self._min_volume_ratio = min_volume_ratio
         self._min_breakout_strength = min_breakout_strength
-        self._min_candle_range = min_candle_range
         self._leverage_base = leverage_base
         self._leverage_max = leverage_max
         self._leverage_min = leverage_min
@@ -101,7 +96,6 @@ class BreakoutHunterStrategy:
             "atr_period": self._atr_period,
             "min_volume_ratio": self._min_volume_ratio,
             "min_breakout_strength": self._min_breakout_strength,
-            "min_candle_range": self._min_candle_range,
             "leverage_base": self._leverage_base,
             "leverage_max": self._leverage_max,
             "leverage_min": self._leverage_min,
@@ -119,29 +113,21 @@ class BreakoutHunterStrategy:
                 f"{self.STRATEGY_ID} needs at least {self.min_history} bars, got {len(candles)}"
             )
 
-        if len(candles) < 2:
-            return self._create_signal(
-                candles[-1],
-                SignalAction.HOLD,
-                0.0,
-                leverage=1.0,
-            )
-
         # Split candles: lookback window + current candle
         lookback = self._atr_period + self._trend_period + 2
         recent = candles[-lookback - 1 : -1]  # candles before the current one
         last_candle = candles[-1]
 
         # Calculate metrics
-        prices = [float(c.close) for c in recent]
         volumes = [float(c.volume) for c in recent]
         atr = self._calculate_atr(recent)
-        trend_ma = self._calculate_sma(prices, self._trend_period)
 
         # Key levels from lookback window
         previous_high = max(float(c.high) for c in recent)
         previous_low = min(float(c.low) for c in recent)
         avg_volume = sum(volumes) / len(volumes) if volumes else 0.0
+
+        # TODO: add trend context filter (e.g. only take longs above trend_ma)
 
         # Current candle metrics
         current_close = float(last_candle.close)
@@ -177,8 +163,9 @@ class BreakoutHunterStrategy:
             )
 
             if is_bull_trap:
-                # False breakout → ENTER_SHORT (bear trap)
-                confidence = min(upper_wick_ratio + (volume_ratio / 3.0), 1.0)
+                # Bull trap: price broke ABOVE resistance but got rejected → counter-trend SHORT
+                bounded_vol = min(volume_ratio, 5.0)
+                confidence = min(upper_wick_ratio + (bounded_vol / 3.0), 1.0)
                 leverage = self._calculate_leverage(
                     confidence=confidence,
                     atr=atr,
@@ -195,7 +182,8 @@ class BreakoutHunterStrategy:
 
             # True breakout → ENTER_LONG
             if volume_ratio >= self._min_volume_ratio and atr_breakout >= self._min_breakout_strength:
-                confidence = min(volume_ratio / 2.0 + atr_breakout / 5.0, 1.0)
+                bounded_vol = min(volume_ratio, 5.0)
+                confidence = min(bounded_vol / 2.0 + atr_breakout / 5.0, 1.0)
                 leverage = self._calculate_leverage(
                     confidence=confidence,
                     atr=atr,
@@ -225,8 +213,9 @@ class BreakoutHunterStrategy:
             )
 
             if is_bear_trap:
-                # False breakout → ENTER_LONG (bull trap)
-                confidence = min(lower_wick_ratio + (volume_ratio / 3.0), 1.0)
+                # Bear trap: price broke BELOW support but got rejected → counter-trend LONG
+                bounded_vol = min(volume_ratio, 5.0)
+                confidence = min(lower_wick_ratio + (bounded_vol / 3.0), 1.0)
                 leverage = self._calculate_leverage(
                     confidence=confidence,
                     atr=atr,
@@ -241,9 +230,10 @@ class BreakoutHunterStrategy:
                     extra_params={**self.params, "signal_type": "false_breakout_long"},
                 )
 
-            # True breakout → ENTER_SHORT
+            # True breakdown → ENTER_SHORT
             if volume_ratio >= self._min_volume_ratio and atr_breakout >= self._min_breakout_strength:
-                confidence = min(volume_ratio / 2.0 + atr_breakout / 5.0, 1.0)
+                bounded_vol = min(volume_ratio, 5.0)
+                confidence = min(bounded_vol / 2.0 + atr_breakout / 5.0, 1.0)
                 leverage = self._calculate_leverage(
                     confidence=confidence,
                     atr=atr,
@@ -301,12 +291,6 @@ class BreakoutHunterStrategy:
         )
 
         return max(self._leverage_min, min(self._leverage_max, leverage))
-
-    def _calculate_sma(self, prices: list[float], period: int) -> float:
-        """Calculate Simple Moving Average."""
-        if len(prices) < period:
-            return prices[-1] if prices else 0.0
-        return sum(prices[-period:]) / period
 
     def _calculate_atr(self, candles: Sequence[Candle]) -> float:
         """Calculate Average True Range."""

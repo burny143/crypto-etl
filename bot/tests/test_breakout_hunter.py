@@ -80,7 +80,7 @@ class TestTrueBreakoutDetection:
             atr_period=14,
             min_volume_ratio=1.2,
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
         )
 
         base_price = 50000.0
@@ -107,7 +107,7 @@ class TestTrueBreakoutDetection:
             atr_period=14,
             min_volume_ratio=1.2,
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
         )
 
         base_price = 50000.0
@@ -134,7 +134,7 @@ class TestTrueBreakoutDetection:
             atr_period=14,
             min_volume_ratio=2.0,  # High volume threshold
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
         )
 
         base_price = 50000.0
@@ -180,7 +180,7 @@ class TestFalseBreakoutDetection:
             atr_period=14,
             min_volume_ratio=1.2,
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
             false_breakout_wick_ratio=0.6,
         )
 
@@ -209,7 +209,7 @@ class TestFalseBreakoutDetection:
             atr_period=14,
             min_volume_ratio=1.2,
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
             false_breakout_wick_ratio=0.6,
         )
 
@@ -238,7 +238,7 @@ class TestFalseBreakoutDetection:
             atr_period=14,
             min_volume_ratio=1.2,
             min_breakout_strength=0.5,
-            min_candle_range=0.002,
+
             false_breakout_wick_ratio=0.8,  # High threshold
         )
 
@@ -357,10 +357,6 @@ class TestValidation:
         with pytest.raises(ValueError, match="min_breakout_strength"):
             BreakoutHunterStrategy(min_breakout_strength=0)
 
-    def test_invalid_candle_range(self) -> None:
-        with pytest.raises(ValueError, match="min_candle_range"):
-            BreakoutHunterStrategy(min_candle_range=0)
-
     def test_invalid_leverage_bounds(self) -> None:
         with pytest.raises(ValueError, match="leverage_max"):
             BreakoutHunterStrategy(leverage_max=0.5, leverage_min=1.0)
@@ -409,7 +405,6 @@ class TestIntegration:
             "atr_period": 21,
             "min_volume_ratio": 1.5,
             "min_breakout_strength": 0.8,
-            "min_candle_range": 0.005,
             "leverage_base": 2.0,
             "leverage_max": 4.0,
             "leverage_min": 0.5,

@@ -66,13 +66,28 @@ def _compute_ema(close: pd.Series, period: int = 20) -> pd.Series:
     return close.ewm(span=period, adjust=False).mean()
 
 
+def _wilder_smooth(series: pd.Series, period: int) -> pd.Series:
+    """Wilder's smoothing: first SMA at index period-1, then
+    ``x[i] = (prev * (period-1) + current) / period`` thereafter.
+    Matches ``shared.js`` computeRSI / computeATR Wilder implementation."""
+    alpha = 1.0 / period
+    sma = series.rolling(window=period, min_periods=period).mean()
+    tail = sma.iloc[period - 1:].copy()
+    wildered = tail.ewm(alpha=alpha, adjust=False).mean()
+    result = sma.copy()
+    result.iloc[period - 1:] = wildered
+    return result
+
+
 def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's RSI (matches shared.js computeRSI)."""
     delta = close.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(window=period).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta.where(delta < 0, 0.0))
+    avg_gain = _wilder_smooth(gain, period)
+    avg_loss = _wilder_smooth(loss, period)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
 
 
 def _compute_macd(
@@ -126,13 +141,12 @@ def _compute_adx(
         axis=1,
     ).max(axis=1)
 
-    atr = tr.ewm(span=period, adjust=False).mean()
-    plus_di = 100 * plus_dm.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
-    minus_di = 100 * minus_dm.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
+    atr = _wilder_smooth(tr, period)
+    plus_di = 100 * _wilder_smooth(plus_dm, period) / atr.replace(0, np.nan)
+    minus_di = 100 * _wilder_smooth(minus_dm, period) / atr.replace(0, np.nan)
 
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    adx = dx.ewm(span=period, adjust=False).mean()
-    return adx
+    return _wilder_smooth(dx, period)
 
 
 def _compute_atr(
@@ -152,7 +166,7 @@ def _compute_atr(
         axis=1,
     ).max(axis=1)
 
-    return tr.ewm(span=period, adjust=False).mean()
+    return _wilder_smooth(tr, period)
 
 
 def _compute_obv(close: pd.Series, volume: pd.Series) -> pd.Series:

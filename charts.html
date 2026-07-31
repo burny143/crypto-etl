@@ -7,158 +7,21 @@
     
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
-    <!-- FIX: pinned to a specific version. The previous unversioned URL
-         (unpkg.com/lightweight-charts/...) always serves the LATEST
-         release. It silently jumped to v5, which removed
-         addCandlestickSeries/addHistogramSeries/addLineSeries in favor
-         of a single addSeries(SeriesType, options) method — that's why
-         nothing was rendering. Pinning prevents this from happening
-         again on the next TradingView release. -->
     <script src="https://unpkg.com/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
     
-    <style>
-        :root {
-            --bg-base: #131722;
-            --bg-panel: #1E222D;
-            --bg-hover: #2A2E39;
-            --border: #2A2E39;
-            --text-main: #D1D4DC;
-            --text-muted: #8F98AD;
-            --up: #089981;
-            --down: #F23645;
-            --accent: #2962FF;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-base); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        
-        /* Top Navigation */
-        .topbar { background: var(--bg-panel); border-bottom: 1px solid var(--border); padding: 0 16px; height: 60px; display: flex; align-items: center; justify-content: space-between; }
-        .topbar-left { display: flex; align-items: center; gap: 24px; }
-        .brand { font-size: 18px; font-weight: 700; color: #fff; }
-        .asset-info { display: flex; align-items: center; gap: 12px; }
-        #headerSymbol { font-size: 20px; font-weight: 700; }
-        #headerPrice { font-size: 18px; font-weight: 500; }
-        
-        .controls { display: flex; gap: 16px; align-items: center; }
-        .btn-group { display: flex; background: var(--bg-base); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-        .btn-group button { background: transparent; border: none; color: var(--text-muted); padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 500; transition: 0.2s; }
-        .btn-group button:hover { color: #fff; }
-        .btn-group button.active { background: var(--bg-hover); color: #fff; }
-        
-        /* Layout Grid */
-        .main-layout { display: flex; flex: 1; height: calc(100vh - 60px); }
-        
-        /* Watchlist Left Panel */
-        .sidebar { width: 300px; background: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-        .sidebar.right { border-right: none; border-left: 1px solid var(--border); overflow-y: auto; }
-        .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; color: #fff; }
-        
-
-        .up { color: var(--up); }
-        .down { color: var(--down); }
-
-        /* Chart Center */
-        .chart-container { flex: 1; display: flex; flex-direction: column; position: relative; }
-        #tvchart { flex: 1; width: 100%; height: 100%; }
-        
-        /* Indicator Overlay */
-        .indicator-menu { position: relative; }
-        .indicator-btn { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-main); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-        .indicator-dropdown { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-top: 4px; z-index: 10; width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .indicator-dropdown.show { display: block; }
-        .ind-option { display: flex; align-items: center; gap: 8px; padding: 6px; font-size: 13px; cursor: pointer; }
-        .ind-option:hover { background: var(--bg-hover); }
-
-        .volume-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; background: var(--bg-panel); user-select: none; }
-        .volume-toggle:hover { color: #fff; }
-
-        /* Signal Panel */
-        .signal-menu { position: relative; }
-        .signal-panel { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 4px; z-index: 10; width: 340px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); max-height: 500px; overflow-y: auto; }
-        .signal-panel.show { display: block; }
-        .signal-cond { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
-        .signal-cond-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
-        .signal-cond-row select, .signal-cond-row input { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 11px; outline: none; }
-        .signal-cond-row select:focus, .signal-cond-row input:focus { border-color: var(--accent); }
-        .signal-cond-row .s-remove { color: var(--down); cursor: pointer; font-size: 14px; padding: 0 4px; }
-        .signal-cond-row .s-remove:hover { opacity: 0.8; }
-        .signal-add-btn { width: 100%; background: transparent; border: 1px dashed var(--border); color: var(--accent); padding: 5px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-bottom: 6px; }
-        .signal-add-btn:hover { border-color: var(--accent); }
-        .signal-logic-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
-        .signal-logic-row select { background: var(--bg-base); border: 1px solid var(--border); border-radius: 4px; color: var(--text-main); padding: 3px 6px; font-size: 11px; outline: none; }
-        .signal-run-btn { width: 100%; background: var(--accent); color: #fff; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
-        .signal-run-btn:hover { opacity: 0.9; }
-        .signal-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .signal-result { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
-        .signal-result .s-summary { display: flex; gap: 12px; }
-        .signal-result .s-buy { color: var(--up); }
-        .signal-result .s-sell { color: var(--down); }
-        .signal-error { color: var(--down); font-size: 11px; }
-
-        /* Pair dropdown */
-        .pair-select-wrap { padding: 12px 16px; }
-        .pair-select { width: 100%; background: var(--bg-base); color: var(--text-main); border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; font-size: 14px; cursor: pointer; outline: none; }
-        .pair-select:hover, .pair-select:focus { border-color: var(--accent); }
-        .pair-info-card { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 12px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px; }
-
-        /* Research Panel */
-        .research-feed { padding: 12px; overflow-y: auto; flex: 1; }
-        .research-card { background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-        .r-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
-        .r-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
-        .r-badge.bullish { background: rgba(8, 153, 129, 0.2); color: var(--up); }
-        .r-badge.bearish { background: rgba(242, 54, 69, 0.2); color: var(--down); }
-        .r-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-        .r-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
-
-        /* Paper Trading */
-        .trade-panel { padding: 8px 12px; }
-        .trade-form { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-        .trade-row { display: flex; gap: 6px; align-items: center; }
-        .trade-row input { background: var(--bg-base); color: var(--text-main); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 12px; }
-        .trade-row select { background: var(--bg-base); color: var(--text-main); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 12px; }
-        .trade-btn { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
-        .trade-btn:hover { opacity: 0.85; }
-        .pos-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 4px; font-size: 11px; }
-        .pos-item .pos-pnl { font-weight: 600; }
-        .pos-item .pos-pnl.positive { color: var(--up); }
-        .pos-item .pos-pnl.negative { color: var(--down); }
-        .pos-item .close-btn { background: var(--down); color: #fff; border: none; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer; }
-        .order-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 10px; border-bottom: 1px solid var(--border); }
-        .order-item:last-child { border-bottom: none; }
-        .order-item .o-side { font-weight: 600; }
-        .order-item .o-side.long { color: var(--up); }
-        .order-item .o-side.short { color: var(--down); }
-        .order-item .o-status { font-size: 9px; padding: 1px 4px; border-radius: 3px; }
-        .order-item .o-status.filled { background: rgba(8,153,129,0.15); color: var(--up); }
-        .order-item .o-status.pending { background: rgba(245,158,11,0.15); color: #f59e0b; }
-        .order-item .o-status.cancelled { background: rgba(242,54,69,0.15); color: var(--down); }
-
-        /* Strategy Results Panel */
-        .strat-feed { padding: 8px 12px; max-height: 300px; overflow-y: auto; }
-        .strat-item { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; cursor: pointer; transition: 0.2s; font-size: 11px; }
-        .strat-item:hover { border-color: var(--accent); }
-        .strat-item.active { border-color: var(--up); background: rgba(8,153,129,0.08); }
-        .strat-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-        .strat-name { font-weight: 600; font-size: 12px; }
-        .strat-sharpe { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
-        .strat-sharpe.good { background: rgba(8,153,129,0.15); color: var(--up); }
-        .strat-sharpe.ok { background: rgba(245,158,11,0.15); color: #f59e0b; }
-        .strat-sharpe.bad { background: rgba(242,54,69,0.15); color: var(--down); }
-        .strat-metrics { display: flex; gap: 8px; color: var(--text-muted); font-size: 10px; flex-wrap: wrap; }
-        .strat-params { font-size: 9px; color: var(--text-muted); margin-top: 3px; opacity: 0.7; }
-        .strat-loading { text-align: center; color: var(--text-muted); font-size: 11px; padding: 12px; }
-        .strat-apply-btn { float: right; background: transparent; border: 1px solid var(--border); color: var(--text-muted); border-radius: 3px; padding: 1px 6px; cursor: pointer; font-size: 9px; }
-        .strat-apply-btn:hover { border-color: var(--accent); color: var(--accent); }
-        .strat-oos { font-size: 9px; color: var(--text-muted); background: rgba(255,255,255,0.05); border-radius: 3px; padding: 1px 4px; }
-    </style>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/charts.css">
 </head>
 <body>
 
     <header class="topbar">
         <div class="topbar-left">
-            <a href="index.html" style="color:var(--text-muted);text-decoration:none;font-size:13px;margin-right:12px;">← Back</a>
+            <a href="index.html" class="back-link">← Back</a>
             <div class="brand">Terminal</div>
             <div class="asset-info">
                 <span id="headerSymbol">BTC</span>
@@ -231,91 +94,117 @@
 
         <!-- Research Panel -->
         <aside class="sidebar right">
-            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="panel-header panel-action">
                 <span>AI Insights</span>
-                <button onclick="generateResearch()" style="background:var(--accent); color:#fff; border:none; border-radius:4px; padding:3px 8px; cursor:pointer; font-size:11px;">Generate</button>
+                <button class="btn-sm" onclick="generateResearch()">Generate</button>
             </div>
             <div class="research-feed" id="researchFeed">
-                <div style="text-align:center; color: var(--text-muted); font-size: 13px; margin-top: 20px;">Loading insights...</div>
+                <div class="empty-state-sm">Loading insights...</div>
             </div>
 
             <!-- Strategy Results -->
-            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
                 <span>Top Strategies</span>
-                <span id="stratCount" style="font-size:10px;color:var(--text-muted)"></span>
+                <span id="stratCount" class="text-muted-sm"></span>
             </div>
             <div class="strat-feed" id="stratFeed">
                 <div class="strat-loading">Select a pair to see top strategies...</div>
             </div>
 
             <!-- Paper Trading -->
-            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
                 <span>Paper Trading</span>
-                <span id="accountEquity" style="font-size:12px;color:var(--text-muted)">$10,000</span>
+                <span id="accountEquity" class="equity-label">$10,000</span>
             </div>
             <div class="trade-panel" id="tradePanel">
                 <div class="trade-form">
                     <div class="trade-row">
-                        <input type="number" id="tradeQty" value="0.01" min="0.0001" step="0.001" style="flex:1;">
-                        <select id="tradeSide" style="flex:0 0 80px;">
-                            <option value="long" style="color:var(--up);">Long</option>
-                            <option value="short" style="color:var(--down);">Short</option>
+                        <input type="number" id="tradeQty" value="0.01" min="0.0001" step="0.001">
+                        <select id="tradeSide">
+                            <option value="long" style="color:var(--color-up);">Long</option>
+                            <option value="short" style="color:var(--color-down);">Short</option>
                         </select>
                         <button class="trade-btn" onclick="placeOrder()">Trade</button>
                     </div>
-                    <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">
+                    <div class="trade-price-label">
                         <span id="tradePriceLabel">Price: –</span>
                     </div>
                 </div>
 
-                <div id="positionsContainer" style="margin-top:8px;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">Positions</div>
-                    <div id="positionsList" style="font-size:11px;color:var(--text-muted);text-align:center;padding:8px;">No open positions.</div>
+                <div id="positionsContainer" style="margin-top:var(--space-2);">
+                    <div class="section-label">Positions</div>
+                    <div id="positionsList" class="empty-state-sm">No open positions.</div>
                 </div>
 
-                <div id="ordersContainer" style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">Recent Orders</div>
-                    <div id="ordersList" style="font-size:10px;color:var(--text-muted);text-align:center;padding:8px;">No orders yet.</div>
+                <div id="ordersContainer" style="margin-top:var(--space-2);border-top:1px solid var(--color-border);padding-top:6px;">
+                    <div class="section-label">Recent Orders</div>
+                    <div id="ordersList" class="empty-state-sm">No orders yet.</div>
                 </div>
             </div>
 
             <!-- Backtest Results -->
-            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border);">
+            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
                 <span>Backtest Results</span>
-                <button id="loadBacktestBtn" onclick="document.getElementById('backtestFileInput').click()" style="background:var(--accent); color:#fff; border:none; border-radius:4px; padding:3px 8px; cursor:pointer; font-size:11px;">Load</button>
+                <button class="btn-sm" onclick="document.getElementById('backtestFileInput').click()">Load</button>
                 <input type="file" id="backtestFileInput" accept=".json" style="display:none" onchange="loadBacktestFile(event)">
             </div>
-            <div id="backtestResultsPanel" style="padding:8px 12px; font-size:11px; color:var(--text-muted);">
-                <div id="backtestSummary" style="text-align:center; padding:8px;">Load a backtest JSON file to see results.</div>
+            <div class="bt-panel" id="backtestResultsPanel">
+                <div id="backtestSummary" class="empty-state-sm">Load a backtest JSON file to see results.</div>
                 <div id="backtestMetrics" style="display:none;">
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
-                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
-                            <div style="font-size:18px; font-weight:700;" id="btReturn">—</div>
-                            <div style="font-size:9px; color:var(--text-muted);">Return</div>
+                    <div class="bt-grid">
+                        <div class="bt-tile">
+                            <div class="bt-tile-value" id="btReturn">—</div>
+                            <div class="bt-tile-label">Return</div>
                         </div>
-                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
-                            <div style="font-size:18px; font-weight:700;" id="btSharpe">—</div>
-                            <div style="font-size:9px; color:var(--text-muted);">Sharpe</div>
+                        <div class="bt-tile">
+                            <div class="bt-tile-value" id="btSharpe">—</div>
+                            <div class="bt-tile-label">Sharpe</div>
                         </div>
-                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
-                            <div style="font-size:18px; font-weight:700;" id="btDrawdown">—</div>
-                            <div style="font-size:9px; color:var(--text-muted);">Max DD</div>
+                        <div class="bt-tile">
+                            <div class="bt-tile-value" id="btDrawdown">—</div>
+                            <div class="bt-tile-label">Max DD</div>
                         </div>
-                        <div style="background:var(--bg-base); border:1px solid var(--border); border-radius:4px; padding:6px; text-align:center;">
-                            <div style="font-size:18px; font-weight:700;" id="btWinRate">—</div>
-                            <div style="font-size:9px; color:var(--text-muted);">Win Rate</div>
+                        <div class="bt-tile">
+                            <div class="bt-tile-value" id="btWinRate">—</div>
+                            <div class="bt-tile-label">Win Rate</div>
                         </div>
                     </div>
-                    <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:10px;">
+                    <div class="bt-summary-row">
                         <span>Trades: <strong id="btTrades">0</strong></span>
                         <span>Profit Factor: <strong id="btProfitFactor">—</strong></span>
                     </div>
-                    <div style="margin-top:4px; font-size:9px; color:var(--text-muted);">
+                    <div class="bt-meta">
                         Strategy: <span id="btStrategy">—</span>
                         &middot; <span id="btSymbol">—</span> <span id="btTimeframe">—</span>
                     </div>
-                    <div style="margin-top:6px; display:flex; gap:4px;">
-                        <button onclick="clearBacktestMarkers()" style="background:transparent; border:1px solid var(--border); color:var(--text-muted); border-radius:4px; padding:3px 8px; cursor:pointer; font-size:10px; flex:1;">Clear Markers</button>
+                    <!-- Detailed trade list -->
+                    <div class="bt-trade-section">
+                        <div class="bt-trade-header" onclick="toggleTradeList()">
+                            <span>Trades (<span id="btTradeCount">0</span>)</span>
+                            <span id="btTradeToggle">▶</span>
+                        </div>
+                        <div id="btTradeBody" style="display:none;margin-top:4px;">
+                            <table class="bt-trade-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Entry</th>
+                                        <th>Side</th>
+                                        <th class="num">Entry $</th>
+                                        <th class="num">Exit $</th>
+                                        <th class="num">PnL</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="btTradeRows"></tbody>
+                            </table>
+                            <div class="bt-formula-note">
+                                <strong>PnL Formula:</strong> Long = (exit − entry) ÷ entry &nbsp;·&nbsp; Short = (entry − exit) ÷ entry
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:6px; display:flex; gap:var(--space-1);">
+                        <button onclick="clearBacktestMarkers()" class="btn-outline-sm" style="flex:1;">Clear Markers</button>
                     </div>
                 </div>
             </div>

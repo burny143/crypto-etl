@@ -5,192 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trader's Lab — Research Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0"></script>
-<style>
-  :root {
-    --bg-base: #0d1117;
-    --bg-panel: #161b22;
-    --bg-hover: #1c2333;
-    --border: #30363d;
-    --accent: #2962ff;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --up: #089981;
-    --down: #f23645;
-    --neutral: #8b949e;
-    --warning: #ff9800;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: var(--bg-base);
-    color: var(--text);
-    min-height: 100vh;
-  }
-
-  /* ── Layout ── */
-  .app-header {
-    display: flex; align-items: center; gap: 16px;
-    padding: 12px 24px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-panel);
-  }
-  .app-header h1 {
-    font-size: 18px; font-weight: 600;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  }
-  .app-header .subtitle {
-    font-size: 11px; color: var(--text-muted);
-    margin-left: auto;
-  }
-  .app-header a {
-    color: var(--accent); text-decoration: none; font-size: 13px;
-  }
-  .app-header a:hover { text-decoration: underline; }
-
-  .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
-
-  /* ── Filter Bar ── */
-  .filter-bar {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 16px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-  }
-  .filter-bar label { font-size: 12px; color: var(--text-muted); }
-  .filter-bar input, .filter-bar select {
-    background: var(--bg-base); border: 1px solid var(--border);
-    color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 13px;
-  }
-  .filter-bar input:focus, .filter-bar select:focus {
-    outline: none; border-color: var(--accent);
-  }
-  .filter-bar .stats {
-    margin-left: auto; font-size: 12px; color: var(--text-muted);
-    display: flex; gap: 16px;
-  }
-  .filter-bar .stats span { display: flex; align-items: center; gap: 4px; }
-  .stat-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-
-  /* ── Table ── */
-  .table-wrap {
-    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-    background: var(--bg-panel);
-  }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th {
-    text-align: left; padding: 10px 14px;
-    font-weight: 500; font-size: 11px; text-transform: uppercase;
-    color: var(--text-muted); border-bottom: 1px solid var(--border);
-    background: rgba(255,255,255,0.03); white-space: nowrap;
-    cursor: pointer; user-select: none;
-  }
-  th:hover { color: var(--text); }
-  th.active-sort { color: var(--accent); }
-  th .sort-arrow { margin-left: 4px; font-size: 10px; display: inline-block; width: 14px; text-align: center; }
-  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr.clickable { cursor: pointer; transition: background 0.15s; }
-  tr.clickable:hover { background: var(--bg-hover); }
-  tr.expanded { background: rgba(41, 98, 255, 0.06); }
-  .detail-row td { padding: 0; }
-  .detail-row.hidden { display: none; }
-
-  .detail-content {
-    padding: 16px 20px 20px 20px;
-    border-top: 1px solid var(--border);
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  .detail-section {
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px;
-  }
-  .detail-section h4 {
-    font-size: 11px; text-transform: uppercase;
-    color: var(--text-muted); margin-bottom: 8px;
-    letter-spacing: 0.5px;
-  }
-  .detail-section.full { grid-column: 1 / -1; }
-  .detail-section .research-item {
-    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px;
-  }
-  .detail-section .research-item:last-child { border: none; }
-  .detail-section .research-item .meta { font-size: 11px; color: var(--text-muted); }
-  .detail-section .strat-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
-  }
-  .detail-section .strat-row:last-child { border: none; }
-
-  /* ── Badges ── */
-  .badge {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 10px;
-    font-size: 11px; font-weight: 600; white-space: nowrap;
-  }
-  .badge-bullish { background: rgba(8, 153, 129, 0.15); color: var(--up); }
-  .badge-bearish { background: rgba(242, 54, 69, 0.15); color: var(--down); }
-  .badge-neutral { background: rgba(139, 148, 158, 0.15); color: var(--neutral); }
-
-  .signal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-  .signal-dot.up { background: var(--up); }
-  .signal-dot.down { background: var(--down); }
-
-  .expand-icon { font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
-  .expand-icon.open { transform: rotate(90deg); }
-
-  /* ── Numeric ── */
-  .num { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; text-align: right; }
-  .pos { color: var(--up); }
-  .neg { color: var(--down); }
-
-  /* ── Empty / Loading ── */
-  .empty-state {
-    text-align: center; padding: 60px 20px; color: var(--text-muted);
-  }
-  .empty-state h3 { font-size: 16px; font-weight: 500; margin-bottom: 8px; }
-  .empty-state p { font-size: 13px; }
-  .loading {
-    text-align: center; padding: 60px 20px; color: var(--text-muted);
-  }
-  .loading::after {
-    content: ''; display: block; margin: 12px auto 0;
-    width: 24px; height: 24px; border: 2px solid var(--border);
-    border-top-color: var(--accent); border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ── Consensus Bar ── */
-  .consensus-bar {
-    margin-top: 6px; height: 6px;
-    background: var(--border); border-radius: 3px; overflow: hidden; display: flex;
-  }
-  .consensus-bar .bull { height:100%; background: var(--up); transition: width 0.4s; }
-  .consensus-bar .neut { height:100%; background: var(--neutral); transition: width 0.4s; }
-  .consensus-bar .bear { height:100%; background: var(--down); transition: width 0.4s; }
-
-  /* ── Responsive ── */
-  @media (max-width: 900px) {
-    .container { padding: 12px; }
-    .filter-bar { flex-direction: column; align-items: stretch; }
-    .filter-bar .stats { margin-left: 0; }
-    .detail-content { grid-template-columns: 1fr; }
-  }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/research.css">
 </head>
 <body>
 
 <div class="app-header">
   <h1>Trader's Lab</h1>
-  <span style="font-size:12px;color:var(--text-muted);font-weight:400;">Research Dashboard</span>
+  <span class="sub">Research Dashboard</span>
   <div class="subtitle">
     <a href="charts.html">← Back to Charts</a>
   </div>
@@ -209,25 +33,24 @@
       <option value="neutral">Neutral</option>
     </select>
 
-
     <div class="stats" id="statsBar">
       <span id="totalCount">—</span>
-      <span><span class="stat-dot" style="background:var(--up)"></span><span id="bullCount">—</span></span>
-      <span><span class="stat-dot" style="background:var(--down)"></span><span id="bearCount">—</span></span>
-      <span><span class="stat-dot" style="background:var(--neutral)"></span><span id="neutCount">—</span></span>
+      <span><span class="stat-dot" style="background:var(--color-up)"></span><span id="bullCount">—</span></span>
+      <span><span class="stat-dot" style="background:var(--color-down)"></span><span id="bearCount">—</span></span>
+      <span><span class="stat-dot" style="background:var(--color-neutral)"></span><span id="neutCount">—</span></span>
     </div>
-    <span style="display:flex;align-items:center;gap:4px;">
-      <label style="font-size:11px;">Chg</label>
-      <span class="btn-group" style="display:flex;gap:0;">
-        <button class="tf-btn" data-tf="d1" onclick="setChangeTf('d1')" style="background:transparent;border:1px solid var(--accent);color:var(--text);padding:3px 8px;font-size:11px;cursor:pointer;">1D</button>
-        <button class="tf-btn" data-tf="w1" onclick="setChangeTf('w1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1W</button>
-        <button class="tf-btn" data-tf="m1" onclick="setChangeTf('m1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1M</button>
-        <button class="tf-btn" data-tf="y1" onclick="setChangeTf('y1')" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:3px 8px;font-size:11px;cursor:pointer;">1Y</button>
+    <span style="display:flex;align-items:center;gap:var(--space-1);">
+      <label style="font-size:var(--text-xs);">Chg</label>
+      <span style="display:flex;gap:0;">
+        <button class="tf-btn active" data-tf="d1" onclick="setChangeTf('d1')">1D</button>
+        <button class="tf-btn" data-tf="w1" onclick="setChangeTf('w1')">1W</button>
+        <button class="tf-btn" data-tf="m1" onclick="setChangeTf('m1')">1M</button>
+        <button class="tf-btn" data-tf="y1" onclick="setChangeTf('y1')">1Y</button>
       </span>
     </span>
-    <button onclick="batchGenerateResearch()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;">Generate Insights</button>
-    <div id="researchStatus" style="display:none;align-items:center;gap:8px;font-size:12px;color:var(--accent);margin-left:auto;">
-      <span class="rs-spinner" style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite;"></span>
+    <button class="gen-btn" onclick="batchGenerateResearch()">Generate Insights</button>
+    <div class="research-status" id="researchStatus">
+      <span class="spinner"></span>
       <span class="rs-label"></span>
     </div>
   </div>
@@ -238,7 +61,7 @@
         <tr>
           <th style="width:28px"></th>
           <th onclick="setSort('symbol')">Symbol <span class="sort-arrow" data-col="symbol"></span></th>
-          <th class="num" onclick="setSort('change')">Change <span id="changeLabel" style="font-size:10px;color:var(--accent);">1D</span><span class="sort-arrow" data-col="change"></span></th>
+          <th class="num" onclick="setSort('change')">Change <span id="changeLabel" style="font-size:10px;color:var(--color-accent);">1D</span><span class="sort-arrow" data-col="change"></span></th>
           <th onclick="setSort('sentiment')">Sentiment <span class="sort-arrow" data-col="sentiment"></span></th>
           <th class="num" onclick="setSort('confidence')">Confidence <span class="sort-arrow" data-col="confidence"></span></th>
           <th class="num" onclick="setSort('bestStrat')">Best Strat <span class="sort-arrow" data-col="bestStrat"></span></th>

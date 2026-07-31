@@ -96,17 +96,28 @@
 
 
         function computeVWAP(data) {
-            let cumPV = 0, cumV = 0, lastSession = null;
+            let cumPV = 0, cumV = 0;
             const result = [];
+            let lastSession = null;
             for (const d of data) {
-                // Reset at each new trading session (calendar day)
                 const session = typeof d.time === 'number'
                     ? new Date(d.time * 1000).toISOString().split('T')[0]
                     : String(d.time).split('T')[0];
-                if (lastSession !== null && session !== lastSession) { cumPV = 0; cumV = 0; }
+
+                // Intraday charts reset once per calendar day, but daily charts
+                // use each bar as its own session by construction. To avoid
+                // collapsing to typical price on 1d, accumulate across the full
+                // visible series instead of resetting on every bar.
+                const isDailyTimeframe = typeof d.time === 'string' && d.time.includes('-') && d.time.length === 10;
+                if (!isDailyTimeframe && lastSession !== null && session !== lastSession) {
+                    cumPV = 0;
+                    cumV = 0;
+                }
                 lastSession = session;
+
                 const tp = (d.high + d.low + d.close) / 3;
-                cumPV += tp * d.value; cumV += d.value;
+                cumPV += tp * d.value;
+                cumV += d.value;
                 result.push({ time: d.time, value: cumPV / (cumV || 0.001) });
             }
             return result;
@@ -266,11 +277,20 @@
             });
         }
 
-        // Set pane stretch factors so price/volume pane gets ~75% height, oscillator pane ~25%
+        // Set pane stretch factors for the 3-pane layout:
+        //   Pane 0 (candles+overlays): ~60%  (stretch 3)
+        //   Pane 1 (volume):           ~15%  (stretch 0.75)
+        //   Pane 2 (oscillators):      ~25%  (stretch 1.25)
         function setOscPaneLayout() {
             const panes = chart.panes();
-            if (panes.length > 1) {
-                panes[0].setStretchFactor(3);
+            if (panes.length > 2) {
+                // 3 panes: candles + volume + oscillators
+                panes[0].setStretchFactor(4);
+                panes[1].setStretchFactor(1);
+                panes[2].setStretchFactor(1.67);
+            } else if (panes.length > 1) {
+                // 2 panes: candles + volume (no oscillators active)
+                panes[0].setStretchFactor(4);
                 panes[1].setStretchFactor(1);
             }
         }
@@ -377,7 +397,7 @@
                         }
                         if (isOsc) opts.priceScaleId = 'osc-' + name;
                         const seriesCtor = isHist ? LightweightCharts.HistogramSeries : LightweightCharts.LineSeries;
-                        const s = chart.addSeries(seriesCtor, opts, isOsc ? 1 : undefined);
+                        const s = chart.addSeries(seriesCtor, opts, isOsc ? 2 : undefined);
                         subSeries.push(s);
                         const data = (result[sk] || []).filter(p => p.value != null);
                         if (data.length > 0) s.setData(data);
@@ -390,7 +410,7 @@
                         lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
                     };
                     if (def && def.scale === 'oscillator') opts.priceScaleId = 'osc-' + name;
-                    const series = chart.addSeries(LightweightCharts.LineSeries, opts, (def && def.scale === 'oscillator') ? 1 : undefined);
+                    const series = chart.addSeries(LightweightCharts.LineSeries, opts, (def && def.scale === 'oscillator') ? 2 : undefined);
                     const data = result.filter(p => p.value != null);
                     if (data.length > 0) series.setData(data);
                     if (def && def.scale === 'oscillator') setOscPaneLayout();
@@ -412,10 +432,10 @@
                     return def && def.scale === 'oscillator';
                 });
                 if (!remainingOscillators) {
-                    // Remove the oscillator pane (pane 1) when empty
+                    // Remove the oscillator pane (pane 2) when empty
                     const panes = chart.panes();
-                    if (panes.length > 1) {
-                        chart.removePane(1);
+                    if (panes.length > 2) {
+                        chart.removePane(2);
                     }
                 }
                 const checked = document.querySelectorAll('.ind-cb:checked').length;
@@ -449,28 +469,19 @@
 
             volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
                 color: '#26a69a', priceFormat: { type: 'volume' },
-                priceScaleId: '', scaleMargins: { top: 0.8, bottom: 0 }
-            });
+            }, 1); // Pane 1: dedicated volume pane below candles
+            setOscPaneLayout(); // Initial 2-pane layout (candles + volume)
 
-            // FIX: the volume series had its own scale margins (confined to
-            // the bottom 20% of the pane), but the candlestick series was
-            // still using the FULL pane height for its own price scale —
-            // that's why candles rendered straight through the volume bars.
-            // Constraining the candle price scale to the top ~60% leaves
-            // clean, non-overlapping room for volume underneath.
-            candleSeries.priceScale().applyOptions({
-                scaleMargins: { top: 0.1, bottom: 0.4 }
-            });
-
-            // Volume show/hide toggle
+            // Volume show/hide toggle — collapse/expand the volume pane
             document.getElementById('volumeToggle').addEventListener('change', (e) => {
                 const show = e.target.checked;
                 volumeSeries.applyOptions({ visible: show });
-                // When volume is hidden, let candles reclaim the full height;
-                // when shown, give volume its room back underneath.
-                candleSeries.priceScale().applyOptions({
-                    scaleMargins: show ? { top: 0.1, bottom: 0.4 } : { top: 0.1, bottom: 0.1 }
-                });
+                const panes = chart.panes();
+                // Pane 1 is always the volume pane
+                if (panes.length > 1) {
+                    panes[1].setStretchFactor(show ? 0.75 : 0);
+                }
+                chart.applyOptions({});
             });
             
             // Handle window resize
@@ -990,6 +1001,78 @@
                 }
                 return enforceAlternating(sig);
             },
+            breakout_hunter: (data, p) => {
+                // Port of bot/strategies/breakout_hunter.py — detects true/false breakouts
+                // with volume confirmation, ATR filtering, and wick-based fakeout detection.
+                const atrPeriod = p.atr_period || 14;
+                const minVolRatio = p.min_volume_ratio || 1.2;
+                const minBreakoutStr = p.min_breakout_strength || 0.5;
+                const trendPeriod = p.trend_period || 20;
+                const falseBreakoutWick = p.false_breakout_wick_ratio || 0.6;
+                const lookback = atrPeriod + trendPeriod + 2;
+                if (data.length < Math.max(atrPeriod + trendPeriod + 5, 60)) return [];
+                const sig = [];
+                for (let i = lookback; i < data.length; i++) {
+                    const cur = data[i];
+                    // Historical window before current candle (no lookahead) — `lookback` elements
+                    const histCandles = data.slice(i - lookback, i);
+                    // Find previous resistance/support, avg volume
+                    let prevHigh = -Infinity, prevLow = Infinity, volSum = 0;
+                    for (const c of histCandles) {
+                        if (c.high > prevHigh) prevHigh = c.high;
+                        if (c.low < prevLow) prevLow = c.low;
+                        volSum += c.value || 0;
+                    }
+                    const avgVol = volSum / histCandles.length;
+                    // Simple ATR on historical window (SMA of TR, matching Python breakout_hunter)
+                    let trSum = 0, trCount = 0;
+                    for (let j = 1; j < histCandles.length; j++) {
+                        const hl = histCandles[j].high - histCandles[j].low;
+                        const hc = Math.abs(histCandles[j].high - histCandles[j-1].close);
+                        const lc = Math.abs(histCandles[j].low - histCandles[j-1].close);
+                        trSum += Math.max(hl, hc, lc);
+                        trCount++;
+                    }
+                    const atr = trCount > 0 ? trSum / Math.min(trCount, atrPeriod) : 0.001;
+                    const atrSafe = atr > 0 ? atr : 0.001;
+                    // Current candle metrics
+                    const curClose = cur.close, curOpen = cur.open;
+                    const curHigh = cur.high, curLow = cur.low;
+                    const curVol = cur.value || 0;
+                    const upperWick = curHigh - Math.max(curOpen, curClose);
+                    const lowerWick = Math.min(curOpen, curClose) - curLow;
+                    const totalRange = Math.max(curHigh - curLow, 0.001);
+                    // --- Breakout above resistance (potential LONG) ---
+                    if (curClose > prevHigh) {
+                        const upperWickRatio = upperWick / totalRange;
+                        const volRatio = curVol / (avgVol > 0 ? avgVol : 1.0);
+                        const atrBreakout = (curClose - prevHigh) / atrSafe;
+                        const isBullTrap = upperWickRatio >= falseBreakoutWick && volRatio >= minVolRatio;
+                        if (isBullTrap) {
+                            // False breakout → counter-trend SHORT
+                            sig.push({time: cur.time, signal: -1});
+                        } else if (volRatio >= minVolRatio && atrBreakout >= minBreakoutStr) {
+                            // True breakout → LONG
+                            sig.push({time: cur.time, signal: 1});
+                        }
+                    }
+                    // --- Breakout below support (potential SHORT) ---
+                    if (curClose < prevLow) {
+                        const lowerWickRatio = lowerWick / totalRange;
+                        const volRatio = curVol / (avgVol > 0 ? avgVol : 1.0);
+                        const atrBreakout = (prevLow - curClose) / atrSafe;
+                        const isBearTrap = lowerWickRatio >= falseBreakoutWick && volRatio >= minVolRatio;
+                        if (isBearTrap) {
+                            // False breakout → counter-trend LONG
+                            sig.push({time: cur.time, signal: 1});
+                        } else if (volRatio >= minVolRatio && atrBreakout >= minBreakoutStr) {
+                            // True breakout → SHORT
+                            sig.push({time: cur.time, signal: -1});
+                        }
+                    }
+                }
+                return enforceAlternating(sig);
+            },
         };
 
         async function loadStrategyResults() {
@@ -998,6 +1081,9 @@
             const countEl = document.getElementById('stratCount');
             feed.innerHTML = '<div class="strat-loading">Loading...</div>';
             countEl.textContent = '';
+
+            // Hoisted outside try so Quick Backtest section can access it after error fall-through
+            let resultsData = [];
 
             try {
                 // Get latest research run_id to scope results (avoid stale/duplicate rows)
@@ -1031,7 +1117,7 @@
                 if (requestId !== loadRequestId) return;
 
                 if (error) throw error;
-                let resultsData = data || [];
+                resultsData = data || [];
                 if (resultsData.length === 0) {
                     // No results for this timeframe — try the closest alternative
                     const altTimeframe = currentTimeframe === '1h' ? '4h' : currentTimeframe === '1d' ? '4h' : '1d';
@@ -1093,7 +1179,46 @@
             }).join('');
             } catch(e) {
                 console.error('Strategy results error:', e);
-                feed.innerHTML = '<div class="strat-loading">Failed to load strategies.</div>';
+                // fall through — append quick backtest strategies even on error
+            }
+
+            // Always append "Quick Backtest" section with all available JS signal strategies.
+            // This lets the user run any strategy even if it hasn't been researched yet.
+            const DEFAULT_PARAMS = {
+                rsi_reversion: { period: 14, oversold: 30, overbought: 70 },
+                macd_crossover: { fast: 12, slow: 26, signal: 9 },
+                bb_reversion: { period: 20, std: 2.0 },
+                ema_crossover: { fast: 12, slow: 26 },
+                stoch_rsi: { period: 14, smooth_k: 3, smooth_d: 3, oversold: 20, overbought: 80 },
+                kc_breakout: { period: 20, mult: 2.0 },
+                rsi_adx_combo: { rsi_period: 14, adx_period: 14, adx_threshold: 25, rsi_oversold: 25, rsi_overbought: 75 },
+                rsi_vol_combo: { rsi_period: 14, vol_period: 20, rsi_oversold: 25, rsi_overbought: 75, vol_mult: 1.5 },
+                breakout_hunter: { atr_period: 14, min_volume_ratio: 1.2, min_breakout_strength: 0.5, trend_period: 20, false_breakout_wick_ratio: 0.6 },
+            };
+            const quickEntries = Object.keys(STRATEGY_SIGNAL_FNS).filter(name => {
+                // Show only strategies not already present in Supabase results
+                return !resultsData.some(r => r.strategy_name === name);
+            }).map(name => {
+                const params = DEFAULT_PARAMS[name] || {};
+                const encoded = encodeURIComponent(JSON.stringify(params));
+                return `
+                    <div class="strat-item" data-strategy="${encodeURIComponent(name)}"
+                         data-params="${encoded}" style="opacity:0.85;">
+                        <div class="strat-head">
+                            <span class="strat-name">${escapeHtml(name.replace(/_/g, ' '))}</span>
+                            <span style="font-size:9px;color:var(--text-muted);padding:1px 4px;border:1px solid var(--border);border-radius:3px;">quick</span>
+                        </div>
+                        <div class="strat-metrics">
+                            <span style="color:var(--text-muted);font-size:9px;">Click to backtest with defaults</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            if (quickEntries) {
+                feed.innerHTML += `
+                    <div style="font-size:10px;color:var(--text-muted);padding:6px 0 4px;border-top:1px solid var(--border);margin-top:4px;">Quick Backtest</div>
+                    ${quickEntries}
+                `;
             }
         }
 
@@ -1114,7 +1239,7 @@
             }
 
             // Generate signals and enforce ascending time order
-            const signals = fn(historicalData, params).slice().sort((a, b) => compareTime(a.time, b.time));
+            const signals = fn(historicalData, params);
             if (signals.length === 0) {
                 document.getElementById('signalResult').innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No signals generated.</div>';
                 return;
@@ -1190,7 +1315,6 @@
             const close = data.map(d => d.close);
             const high = data.map(d => d.high);
             const low = data.map(d => d.low);
-            const vol = data.map(d => d.value);
 
             // Compute indicators
             const sma20 = computeSMA(data, 20);
@@ -1794,6 +1918,22 @@
             return datetime.split('T')[0];
         }
 
+        // Convert a trade time (ISO string, unix number, or YYYY-MM-DD) to chart-series-compatible marker time.
+        // For daily: YYYY-MM-DD string. For intraday: unix seconds number.
+        function toMarkerTime(val, isDaily) {
+            if (val == null) return null;
+            if (isDaily) {
+                // Extract YYYY-MM-DD from whatever format
+                if (typeof val === 'string') return val.split('T')[0];
+                // val is a number (unix seconds) — convert via Date
+                return new Date(val * 1000).toISOString().split('T')[0];
+            }
+            // Intraday: must be unix seconds number
+            if (typeof val === 'number') return Math.floor(val);
+            // String ISO → unix seconds
+            return Math.floor(new Date(val).getTime() / 1000);
+        }
+
         // Timeframe Selector
         document.getElementById('timeframeSelector').addEventListener('click', (e) => {
             if (e.target.tagName !== 'BUTTON') return;
@@ -1943,9 +2083,11 @@
             clearBacktestMarkers();
             if (trades.length && typeof candleMarkers !== 'undefined' && candleMarkers) {
                 const markers = [];
+                const isDaily = currentTimeframe === '1d';
                 trades.forEach(t => {
-                    const entryTime = t.entry_time ? Math.floor(new Date(t.entry_time).getTime() / 1000) : null;
-                    const exitTime = t.exit_time ? Math.floor(new Date(t.exit_time).getTime() / 1000) : null;
+                    // Convert entry/exit to chart time format matching the series
+                    const entryTime = t.entry_time ? toMarkerTime(t.entry_time, isDaily) : null;
+                    const exitTime = t.exit_time ? toMarkerTime(t.exit_time, isDaily) : null;
 
                     if (entryTime) {
                         markers.push({
@@ -1967,10 +2109,14 @@
                         });
                     }
                 });
-                // Add to existing markers rather than replacing
                 backtestMarkers = markers;
                 const existing = candleMarkers._markers || [];
-                candleMarkers.setMarkers([...existing, ...markers]);
+                // Keep signal markers (B/S) alongside new backtest markers
+                const signalOnly = existing.filter(m => {
+                    const text = m.text || '';
+                    return text === 'B' || text === 'S';
+                });
+                candleMarkers.setMarkers([...signalOnly, ...markers]);
             }
         };
 
@@ -1980,7 +2126,8 @@
                 // Filter out backtest markers (remove any we added)
                 const nonBt = existing.filter(m => {
                     const text = m.text || '';
-                    return !text.startsWith('BT ') && text !== 'TP' && text !== 'SL';
+                    // Remove BT entry markers, TP/SL, and PnL percentage markers (e.g. '+2.8%', '-1.5%')
+                    return !text.startsWith('BT ') && text !== 'TP' && text !== 'SL' && !/^[+-]\d+\.\d+%$/.test(text);
                 });
                 candleMarkers.setMarkers(nonBt);
             }
@@ -1989,13 +2136,299 @@
 
         // ── End Backtest Results ──
 
-        // Delegated click for strategy items
+        // ── Detailed Trade List Toggles ──
+
+        window.toggleTradeList = function() {
+            const body = document.getElementById('btTradeBody');
+            const toggle = document.getElementById('btTradeToggle');
+            const isVisible = body && body.style.display !== 'none';
+            if (body) body.style.display = isVisible ? 'none' : 'block';
+            if (toggle) toggle.textContent = isVisible ? '▶' : '▼';
+        };
+
+        window.toggleTradeDetail = function(idx) {
+            const row = document.getElementById('btTradeDetail' + idx);
+            if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+        };
+
+        // ── Client-Side Backtest Simulation ──
+
+        function runBacktestOnStrategy(strategyName, params) {
+            const fn = STRATEGY_SIGNAL_FNS[strategyName];
+            if (!fn || !historicalData || historicalData.length < 30) return;
+
+            // Highlight active card
+            document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
+            for (const card of document.querySelectorAll('.strat-item')) {
+                if (decodeURIComponent(card.dataset.strategy) === strategyName &&
+                    decodeURIComponent(card.dataset.params) === JSON.stringify(params)) {
+                    card.classList.add('active');
+                }
+            }
+
+            // Generate signals (alternating buy/sell guaranteed by enforceAlternating)
+            const signals = fn(historicalData, params);
+            if (signals.length < 2) {
+                document.getElementById('signalResult').innerHTML = '<div class="signal-result" style="color:var(--text-muted)">Not enough signals for backtest.</div>';
+                return;
+            }
+
+            // Build price lookup
+            const priceByTime = new Map(historicalData.map(d => [d.time, d.close]));
+
+            // Simulate trades from alternating signals (BUY=1 / SELL=-1).
+            // BUY when flat → enter long.  BUY when short → close short + enter long.
+            // SELL when flat → enter short.  SELL when long → close long + enter short.
+            const trades = [];
+            let openTrade = null; // { entry_time, entry_price, side: 'long'|'short' }
+
+            for (let i = 0; i < signals.length; i++) {
+                const sig = signals[i];
+                const price = priceByTime.get(sig.time);
+                if (price === undefined) continue;
+
+                if (sig.signal === 1) {
+                    // BUY = enter long (or flip from short)
+                    if (openTrade && openTrade.side === 'short') {
+                        // Close short: PnL = (entry - exit) / entry
+                        const pnl = (openTrade.entry_price - price) / openTrade.entry_price;
+                        trades.push({
+                            entry_time: openTrade.entry_time,
+                            exit_time: sig.time,
+                            side: 'short',
+                            entry_price: openTrade.entry_price,
+                            exit_price: price,
+                            pnl: pnl,
+                            pnl_pct: pnl * 100,
+                        });
+                        openTrade = null;
+                    }
+                    if (openTrade) {
+                        // Already long — alternating guarantees this won't happen, but defend
+                        continue;
+                    }
+                    openTrade = { entry_time: sig.time, entry_price: price, side: 'long' };
+                } else {
+                    // SELL = enter short (or flip from long)
+                    if (openTrade && openTrade.side === 'long') {
+                        // Close long: PnL = (exit - entry) / entry
+                        const pnl = (price - openTrade.entry_price) / openTrade.entry_price;
+                        trades.push({
+                            entry_time: openTrade.entry_time,
+                            exit_time: sig.time,
+                            side: 'long',
+                            entry_price: openTrade.entry_price,
+                            exit_price: price,
+                            pnl: pnl,
+                            pnl_pct: pnl * 100,
+                        });
+                        openTrade = null;
+                    }
+                    if (openTrade) {
+                        // Already short — alternating guarantees this won't happen, but defend
+                        continue;
+                    }
+                    openTrade = { entry_time: sig.time, entry_price: price, side: 'short' };
+                }
+            }
+
+            // Close any remaining position at last bar
+            if (openTrade) {
+                const lastBar = historicalData[historicalData.length - 1];
+                const price = lastBar.close;
+                const pnl = openTrade.side === 'long'
+                    ? (price - openTrade.entry_price) / openTrade.entry_price
+                    : (openTrade.entry_price - price) / openTrade.entry_price;
+                trades.push({
+                    entry_time: openTrade.entry_time,
+                    exit_time: lastBar.time,
+                    side: openTrade.side,
+                    entry_price: openTrade.entry_price,
+                    exit_price: price,
+                    pnl: pnl,
+                    pnl_pct: pnl * 100,
+                });
+            }
+
+            if (trades.length === 0) {
+                document.getElementById('signalResult').innerHTML = '<div class="signal-result" style="color:var(--text-muted)">No completed trades.</div>';
+                return;
+            }
+
+            // ── Compute metrics ──
+            const wins = trades.filter(t => t.pnl > 0);
+            // Exactly-zero-PnL trades are treated as losses for gross-loss and
+            // profit-factor purposes so scratch trades do not inflate the win rate.
+            const losses = trades.filter(t => t.pnl <= 0);
+            const winRate = trades.length > 0 ? wins.length / trades.length : 0;
+            const grossProfit = wins.reduce((s, t) => s + t.pnl, 0);
+            const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+            const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+
+            // Equity curve for max drawdown and compounded headline return
+            let equity = 1;
+            let peak = 1;
+            let maxDd = 0;
+            const equityCurve = trades.map(t => {
+                equity *= (1 + t.pnl);
+                if (equity > peak) peak = equity;
+                const dd = (peak - equity) / peak;
+                if (dd > maxDd) maxDd = dd;
+                return equity;
+            });
+
+            const totalReturn = equity - 1;
+
+            // Simplified Sharpe (annualized using trade count as proxy)
+            const tradeReturns = trades.map(t => t.pnl);
+            const avgReturn = tradeReturns.reduce((s, r) => s + r, 0) / tradeReturns.length;
+            const stdReturn = Math.sqrt(tradeReturns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / tradeReturns.length);
+            const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(trades.length) : 0;
+
+            // ── Update Backtest Results UI ──
+            document.getElementById('backtestSummary').style.display = 'none';
+            document.getElementById('backtestMetrics').style.display = 'block';
+
+            const pct = (v) => (v * 100).toFixed(2) + '%';
+            const num = (v) => v != null && isFinite(v) ? v.toFixed(2) : '—';
+
+            document.getElementById('btReturn').textContent = pct(totalReturn);
+            document.getElementById('btReturn').style.color = totalReturn >= 0 ? 'var(--up)' : 'var(--down)';
+            document.getElementById('btSharpe').textContent = num(sharpe);
+            document.getElementById('btDrawdown').textContent = pct(maxDd);
+            document.getElementById('btWinRate').textContent = pct(winRate);
+            document.getElementById('btTrades').textContent = trades.length;
+            document.getElementById('btProfitFactor').textContent = profitFactor === Infinity ? '∞' : num(profitFactor);
+            document.getElementById('btStrategy').textContent = strategyName.replace(/_/g, ' ');
+            document.getElementById('btSymbol').textContent = currentSymbol;
+            document.getElementById('btTimeframe').textContent = currentTimeframe;
+
+            // ── Render detailed trade list ──
+            document.getElementById('btTradeCount').textContent = trades.length;
+            const tbody = document.getElementById('btTradeRows');
+            tbody.innerHTML = trades.map((t, idx) => {
+                const entryStr = typeof t.entry_time === 'number' ? new Date(t.entry_time * 1000).toLocaleString() : (t.entry_time || '—');
+                const exitStr = typeof t.exit_time === 'number' ? new Date(t.exit_time * 1000).toLocaleString() : (t.exit_time || '—');
+                const ep = t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : '—';
+                const xp = t.exit_price != null ? `$${Number(t.exit_price).toFixed(2)}` : '—';
+                const sideLabel = t.side === 'long' ? 'LONG' : 'SHORT';
+                const sideColor = t.side === 'long' ? 'var(--up)' : 'var(--down)';
+                const pnlColor = t.pnl >= 0 ? 'var(--up)' : 'var(--down)';
+                const pnlStr = t.pnl >= 0 ? `+${(t.pnl_pct || 0).toFixed(2)}%` : `${(t.pnl_pct || 0).toFixed(2)}%`;
+                const epNum = Number(t.entry_price);
+                const xpNum = Number(t.exit_price);
+                const formulaStr = t.side === 'long'
+                    ? `($${xpNum.toFixed(2)} − $${epNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`
+                    : `($${epNum.toFixed(2)} − $${xpNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`;
+                return `<tr onclick="toggleTradeDetail(${idx})">
+                    <td>${idx + 1}</td>
+                    <td style="font-size:9px;">${entryStr}</td>
+                    <td style="color:${sideColor};font-weight:600;">${sideLabel}</td>
+                    <td class="num">${ep}</td>
+                    <td class="num">${xp}</td>
+                    <td class="num" style="color:${pnlColor};font-weight:600;">${pnlStr}</td>
+                </tr>
+                <tr id="btTradeDetail${idx}" class="bt-trade-detail" style="display:none;">
+                    <td colspan="6" style="padding:4px 8px 6px;">
+                        <strong>Side:</strong> ${sideLabel}<br>
+                        <strong>Entry:</strong> ${entryStr} @ ${ep}<br>
+                        <strong>Exit:</strong> ${exitStr} @ ${xp}<br>
+                        <strong>PnL:</strong> ${pnlStr}<br>
+                        <strong>Formula:</strong> ${formulaStr} = ${(t.pnl_pct || 0).toFixed(2)}%
+                    </td>
+                </tr>`;
+            }).join('');
+
+            // ── Render trade markers on chart ──
+            clearBacktestMarkers();
+            if (typeof candleMarkers !== 'undefined' && candleMarkers) {
+                const markers = [];
+                // Client-side backtest entry_time/exit_time are already in chart format
+                // (string 'YYYY-MM-DD' for daily, number unix sec for intraday), so no conversion needed.
+                trades.forEach(t => {
+                    if (t.entry_time) {
+                        const isLong = t.side === 'long';
+                        markers.push({
+                            time: t.entry_time,
+                            position: isLong ? 'belowBar' : 'aboveBar',
+                            color: isLong ? '#089981' : '#F23645',
+                            shape: isLong ? 'arrowUp' : 'arrowDown',
+                            text: isLong ? 'BT LONG' : 'BT SHORT',
+                        });
+                    }
+                    if (t.exit_time) {
+                        const isProfit = t.pnl > 0;
+                        markers.push({
+                            time: t.exit_time,
+                            position: 'aboveBar',
+                            color: isProfit ? '#089981' : '#f23645',
+                            shape: 'arrowDown',
+                            text: isProfit ? `+${(t.pnl_pct || 0).toFixed(1)}%` : `${(t.pnl_pct || 0).toFixed(1)}%`,
+                        });
+                    }
+                });
+                backtestMarkers = markers;
+                const existing = candleMarkers._markers || [];
+                // Also keep signal markers if any
+                const signalOnly = existing.filter(m => {
+                    const text = m.text || '';
+                    return text === 'B' || text === 'S';
+                });
+                candleMarkers.setMarkers([...signalOnly, ...markers]);
+            }
+
+            // ── Signal result / trade log ──
+            const logRows = trades.slice(-10).reverse().map(t => {
+                const ts = typeof t.exit_time === 'number' ? new Date(t.exit_time * 1000).toLocaleString() : t.exit_time;
+                const pnlColor = t.pnl >= 0 ? 'var(--up)' : 'var(--down)';
+                const pnlStr = t.pnl >= 0 ? `+${(t.pnl_pct || 0).toFixed(2)}%` : `${(t.pnl_pct || 0).toFixed(2)}%`;
+                return `<tr>
+                    <td style="padding:2px 4px;font-size:10px;">${ts}</td>
+                    <td style="padding:2px 4px;color:${pnlColor};font-weight:600;text-align:right;">${pnlStr}</td>
+                </tr>`;
+            }).join('');
+
+            // Show backtest summary in signal result too
+            document.getElementById('signalResult').innerHTML = `
+                <div style="font-size:11px;padding:4px;">
+                    <span style="color:var(--up)">W: ${wins.length}</span>
+                    <span style="color:var(--down);margin-left:8px;">L: ${losses.length}</span>
+                    <span style="color:var(--text-muted);margin-left:8px;">
+                        Return: <strong style="color:${totalReturn >= 0 ? 'var(--up)' : 'var(--down)'}">${pct(totalReturn)}</strong>
+                    </span>
+                    <button onclick="clearBacktestMarkers();clearSignal();" style="float:right;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:3px;padding:0 5px;cursor:pointer;font-size:10px;">X</button>
+                </div>
+                <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;">
+                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">Trade Log (last ${Math.min(trades.length, 10)})</div>
+                    <table style="width:100%;font-size:10px;border-collapse:collapse;">
+                        <thead>
+                            <tr style="color:var(--text-muted);">
+                                <th style="text-align:left;padding:2px 4px;">Exit</th>
+                                <th style="text-align:right;padding:2px 4px;">P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody>${logRows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // ── Signal clear also clears backtest ──
+        const _origClearSignal = clearSignal;
+        clearSignal = function() {
+            _origClearSignal();
+            clearBacktestMarkers();
+            document.getElementById('backtestMetrics').style.display = 'none';
+            document.getElementById('backtestSummary').style.display = 'block';
+        };
+
+        // Delegated click for strategy items — runs backtest instead of raw signals
         document.getElementById('stratFeed').addEventListener('click', (e) => {
             const item = e.target.closest('.strat-item');
             if (!item) return;
             const strategy = decodeURIComponent(item.dataset.strategy);
             const params = JSON.parse(decodeURIComponent(item.dataset.params));
-            applyStrategySignals(strategy, params);
+            runBacktestOnStrategy(strategy, params);
         });
 
         // Boot

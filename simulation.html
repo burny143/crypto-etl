@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRED/USDT Simulation — Paper Trading Bot</title>
+<script src="https://unpkg.com/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="js/strategies.js" defer></script>
+<script src="js/simulation.js" defer></script>
+<script src="js/backtest.js" defer></script>
+<style>
+  :root {
+    --bg-primary: #1a1b1e;
+    --bg-secondary: #25262b;
+    --bg-card: #2c2e33;
+    --text-primary: #e4e4e7;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent-green: #22c55e;
+    --accent-red: #ef4444;
+    --accent-blue: #3b82f6;
+    --accent-yellow: #eab308;
+    --border-color: #3f3f46;
+    --radius: 8px;
+    --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; overflow: hidden; height: 100vh; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-title { font-weight: 600; font-size: 16px; }
+  .header-symbol { font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); background: var(--bg-card); padding: 2px 10px; border-radius: 4px; }
+  .header-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.running { background: var(--accent-green); }
+  .status-dot.stopped { background: var(--text-muted); }
+  .header-controls { display: flex; gap: 8px; }
+  .btn { padding: 6px 16px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); color: var(--text-primary); font-size: 13px; font-family: var(--font-sans); cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+  .btn:hover { background: #3f3f46; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-start { border-color: var(--accent-green); color: var(--accent-green); }
+  .btn-start:hover { background: rgba(34,197,94,0.1); }
+  .btn-stop { border-color: var(--accent-red); color: var(--accent-red); }
+  .btn-stop:hover { background: rgba(239,68,68,0.1); }
+  .btn-reset { border-color: var(--accent-yellow); color: var(--accent-yellow); }
+  .btn-reset:hover { background: rgba(234,179,8,0.1); }
+  .btn-speed { font-size: 11px; padding: 4px 10px; }
+  .btn-speed.active { border-color: var(--accent-blue); color: var(--accent-blue); background: rgba(59,130,246,0.1); }
+  .main { display: flex; flex: 1; min-height: 0; }
+  .chart-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #chart-container { flex: 1; min-height: 0; }
+  .sidebar { width: 320px; flex-shrink: 0; background: var(--bg-secondary); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+  .panel { padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+  .panel:last-child { border-bottom: none; }
+  .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; }
+  .price-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .price-value { font-family: var(--font-mono); font-size: 28px; font-weight: 700; }
+  .price-value.up { color: var(--accent-green); }
+  .price-value.down { color: var(--accent-red); }
+  .price-change { font-family: var(--font-mono); font-size: 13px; }
+  .price-change.up { color: var(--accent-green); }
+  .price-change.down { color: var(--accent-red); }
+  .ticker-row { display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+  .ticker-row span { white-space: nowrap; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .stat-item { display: flex; justify-content: space-between; align-items: center; }
+  .stat-label { font-size: 12px; color: var(--text-muted); }
+  .stat-value { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+  .stat-value.pos { color: var(--accent-green); }
+  .stat-value.neg { color: var(--accent-red); }
+  .positions-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .positions-table th { text-align: left; padding: 4px 6px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-color); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .positions-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-color); font-family: var(--font-mono); font-size: 11px; }
+  .positions-table .side-long { color: var(--accent-green); }
+  .positions-table .side-short { color: var(--accent-red); }
+  .positions-empty { color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px 0; }
+  .trade-side { font-weight: 600; text-transform: uppercase; font-size: 10px; }
+  .trade-time { color: var(--text-muted); font-size: 10px; }
+  .trade-side.entry { color: var(--accent-blue); }
+  .trade-side.exit { color: var(--accent-yellow); }
+  .trade-side.rejected { color: var(--accent-red); }
+  .trade-pnl.pos { color: var(--accent-green); }
+  .trade-pnl.neg { color: var(--accent-red); }
+  .uptime { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+  .speed-controls { display: flex; gap: 4px; align-items: center; margin-left: 12px; }
+  .speed-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .sim-toggles { display: flex; gap: 12px; align-items: center; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border-color); }
+  .sim-toggle { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+  .sim-toggle input { accent-color: var(--accent-blue); cursor: pointer; }
+  .strategy-controls { display: flex; gap: 6px; align-items: center; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border-color); }
+  .strategy-select { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius); font-size: 11px; font-family: var(--font-sans); padding: 4px 8px; cursor: pointer; }
+  .strategy-select:hover { border-color: var(--accent-blue); }
+  .btn-back { color: var(--text-secondary); }
+  .btn-back:hover { color: var(--text-primary); background: var(--bg-card); }
+  .batch-hint { font-size: 10px; color: var(--text-muted); margin-top: 6px; margin-bottom: 8px; }
+  .batch-results { font-family: var(--font-mono); font-size: 11px; line-height: 1.5; white-space: pre-wrap; max-height: 240px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 8px; }
+  .batch-results .pos { color: var(--accent-green); }
+  .batch-results .neg { color: var(--accent-red); }
+
+  /* Bottom trade-history panel (full width — has many columns) */
+  .trades-panel { flex-shrink: 0; background: var(--bg-secondary); border-top: 1px solid var(--border-color); }
+  .trades-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px 0; }
+  .trades-header .panel-title { margin-bottom: 6px; }
+  .trades-hint { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; }
+  .trades-scroll { max-height: 180px; overflow-y: auto; }
+  .trades-scroll::-webkit-scrollbar { width: 4px; }
+  .trades-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+  .trades-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .trades-table th { text-align: left; padding: 6px 16px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-color); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; background: var(--bg-secondary); position: sticky; top: 0; }
+  .trades-table th.sortable { cursor: pointer; user-select: none; }
+  .trades-table th.sortable:hover { color: var(--text-primary); }
+  .trades-table th .sort-ind { display: inline-block; width: 10px; margin-left: 2px; color: var(--accent-blue); }
+  .trades-table td { padding: 5px 16px; border-bottom: 1px solid var(--border-color); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+  .trades-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+  /* Trade-summary popup (opened by the Stop button) */
+  .summary-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .summary-modal { width: 520px; max-width: 94vw; max-height: 82vh; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  .summary-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+  .summary-header .panel-title { margin-bottom: 0; }
+  .summary-close { background: none; border: none; color: var(--text-muted); font-size: 15px; cursor: pointer; padding: 4px 8px; border-radius: 4px; line-height: 1; }
+  .summary-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+  .summary-body { padding: 16px; overflow-y: auto; }
+  .summary-body .stat-grid { margin-bottom: 4px; }
+  .summary-body .section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 14px 0 6px; font-weight: 600; }
+  .summary-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .summary-table th { text-align: left; padding: 4px 8px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border-color); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+  .summary-table td { padding: 4px 8px; border-bottom: 1px solid var(--border-color); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+  @media (max-width: 900px) { .main { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; border-left: none; border-top: 1px solid var(--border-color); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="header-left">
+      <span class="header-title">🤖 Simulation</span>
+      <span class="header-symbol">FRED/USDT</span>
+      <div class="header-status">
+        <span class="status-dot stopped" id="statusDot"></span>
+        <span id="statusLabel">Stopped</span>
+        <span class="uptime" id="uptimeDisplay"></span>
+      </div>
+      <div class="speed-controls">
+        <span class="speed-label">Speed</span>
+        <button class="btn btn-speed" data-speed="1">1×</button>
+        <button class="btn btn-speed" data-speed="5">5×</button>
+        <button class="btn btn-speed active" data-speed="10">10×</button>
+        <button class="btn btn-speed" data-speed="50">50×</button>
+      </div>
+      <div class="sim-toggles">
+        <label class="sim-toggle" title="GARCH volatility clustering, weak momentum, volume coupled to price moves"><input type="checkbox" id="chkRealism">Realism</label>
+        <label class="sim-toggle" title="Redraw drift/GARCH/momentum parameters on every reset"><input type="checkbox" id="chkRandomize">Randomize regime</label>
+      </div>
+      <div class="strategy-controls">
+        <span class="speed-label">Strategy</span>
+        <select id="strategySelect" class="strategy-select" title="Which signal generator the bot trades on">
+          <option value="breakout_hunter" selected>Breakout Hunter</option>
+          <option value="rsi_reversion">RSI Reversion</option>
+          <option value="buy_and_hold">Buy &amp; Hold (baseline)</option>
+          <option value="all">All trading strategies</option>
+        </select>
+      </div>
+    </div>
+    <div class="header-controls">
+      <a class="btn btn-back" href="index.html" title="Back to terminal">← Back</a>
+      <button class="btn btn-start" id="btnStart">▶ Start</button>
+      <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
+      <button class="btn btn-reset" id="btnReset">↺ Reset</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="chart-area">
+      <div id="chart-container"></div>
+    </div>
+    <div class="sidebar">
+      <div class="panel">
+        <div class="price-row">
+          <span class="price-value" id="priceDisplay">100.00</span>
+          <span class="price-change" id="changeDisplay">0.00%</span>
+        </div>
+        <div class="ticker-row">
+          <span>H: <span id="highDisplay">100.00</span></span>
+          <span>L: <span id="lowDisplay">100.00</span></span>
+          <span>Vol: <span id="volDisplay">0</span></span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Portfolio</div>
+        <div class="stat-grid">
+          <div class="stat-item"><span class="stat-label">Cash</span><span class="stat-value" id="cashDisplay">10,000.00</span></div>
+          <div class="stat-item"><span class="stat-label">Equity</span><span class="stat-value" id="equityDisplay">10,000.00</span></div>
+          <div class="stat-item"><span class="stat-label">PnL</span><span class="stat-value" id="pnlDisplay">0.00</span></div>
+          <div class="stat-item"><span class="stat-label">Return</span><span class="stat-value" id="returnDisplay">0.00%</span></div>
+          <div class="stat-item"><span class="stat-label">B&amp;H</span><span class="stat-value" id="baselineDisplay">0.00%</span></div>
+          <div class="stat-item"><span class="stat-label">vs B&amp;H</span><span class="stat-value" id="alphaDisplay">0.00%</span></div>
+          <div class="stat-item"><span class="stat-label">Positions</span><span class="stat-value" id="positionsCount">0</span></div>
+          <div class="stat-item"><span class="stat-label">Trades</span><span class="stat-value" id="tradesCount">0</span></div>
+          <div class="stat-item"><span class="stat-label">Fees Paid</span><span class="stat-value" id="feesDisplay">0.00</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Open Positions</div>
+        <div id="positionsContainer"><div class="positions-empty">No open positions</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Batch Backtest</div>
+        <button class="btn" id="btnBatch" title="Run a headless 50-seed × 20k-tick batch: each strategy vs the same-seed buy-and-hold baseline">Run batch (50 seeds)</button>
+        <div class="batch-hint">Headless, no chart updates. Mirrors current Realism/Randomize toggles.</div>
+        <div class="batch-results" id="batchResults"><span class="positions-empty">Not run yet</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="trades-panel">
+    <div class="trades-header">
+      <span class="panel-title">Recent Trades</span>
+      <span class="trades-hint">Click a column header to sort</span>
+    </div>
+    <div class="trades-scroll">
+      <table class="trades-table">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Side</th>
+            <th class="sortable" data-sort-key="time" data-sort-dir="-1">Time<span class="sort-ind">▼</span></th>
+            <th>Qty</th>
+            <th>Price</th>
+            <th class="sortable" data-sort-key="pnl" data-sort-dir="-1">PnL<span class="sort-ind"></span></th>
+            <th>Strategy</th>
+          </tr>
+        </thead>
+        <tbody id="tradesBody"><tr><td colspan="7" class="positions-empty">No trades yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

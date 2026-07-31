@@ -116,6 +116,13 @@ class BacktestEngine:
     The engine walks through ``candles`` in chronological order, evaluating
     the strategy on each bar and simulating fills through the standard bot
     pipeline (risk → executor → portfolio).
+
+    .. note::
+
+       Each ``run()`` call mutates the ``portfolio`` passed at construction.
+       Callers that need multiple backtests **must** create a fresh engine
+       (or at least a fresh ``PortfolioService``) per run to avoid state
+       leakage between iterations.
     """
 
     # Default fraction of available cash per entry

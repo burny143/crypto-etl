@@ -178,11 +178,29 @@ def _sma(close: pd.Series, period: int) -> pd.Series:
 def _ema(close: pd.Series, period: int) -> pd.Series:
     return close.ewm(span=period, adjust=False).mean()
 
+def _wilder_smooth(series: pd.Series, period: int) -> pd.Series:
+    """Wilder's smoothing: first SMA value at index period-1, then
+    ``x[i] = (prev * (period-1) + current) / period`` thereafter.
+    Matches ``shared.js`` computeRSI / computeATR Wilder implementation."""
+    alpha = 1.0 / period
+    sma = series.rolling(window=period, min_periods=period).mean()
+    # Extract tail from the SMA position, seed with SMA, then ewm(alpha=1/period)
+    # gives the correct Wilder's recurrence (math-proven).
+    tail = sma.iloc[period - 1:].copy()
+    wildered = tail.ewm(alpha=alpha, adjust=False).mean()
+    result = sma.copy()
+    result.iloc[period - 1:] = wildered
+    return result
+
+
 def _rsi(close: pd.Series, period: int) -> pd.Series:
+    """Wilder's RSI (matches shared.js computeRSI)."""
     delta = close.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(window=period).mean()
-    rs = gain / loss.replace(0, np.nan)
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta.where(delta < 0, 0.0))
+    avg_gain = _wilder_smooth(gain, period)
+    avg_loss = _wilder_smooth(loss, period)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
 def _macd(close: pd.Series, fast: int, slow: int, signal: int) -> pd.DataFrame:
@@ -201,26 +219,28 @@ def _bb(close: pd.Series, period: int, std: float) -> pd.DataFrame:
     return pd.DataFrame({"upper": upper, "mid": mid, "lower": lower})
 
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+    """Wilder's ATR (matches shared.js computeATR)."""
     h, l, c = high.astype(float), low.astype(float), close.astype(float)
     tr = pd.concat([
         (h - l).abs(),
         (h - c.shift()).abs(),
         (l - c.shift()).abs(),
     ], axis=1).max(axis=1)
-    return tr.ewm(span=period, adjust=False).mean()
+    return _wilder_smooth(tr, period)
 
 def _adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+    """Wilder's ADX (matches shared.js computeADX)."""
     h, l, c = high.astype(float), low.astype(float), close.astype(float)
     up = h.diff()
     down = -l.diff()
     plus_dm = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=h.index)
     minus_dm = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=h.index)
     tr = pd.concat([(h - l).abs(), (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
-    atr = tr.ewm(span=period, adjust=False).mean()
-    pdi = 100 * plus_dm.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
-    mdi = 100 * minus_dm.ewm(span=period, adjust=False).mean() / atr.replace(0, np.nan)
+    atr = _wilder_smooth(tr, period)
+    pdi = 100 * _wilder_smooth(plus_dm, period) / atr.replace(0, np.nan)
+    mdi = 100 * _wilder_smooth(minus_dm, period) / atr.replace(0, np.nan)
     dx = 100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan)
-    return dx.ewm(span=period, adjust=False).mean()
+    return _wilder_smooth(dx, period)
 
 def _obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     return (volume.astype(float) * np.sign(close.astype(float).diff())).fillna(0).cumsum()

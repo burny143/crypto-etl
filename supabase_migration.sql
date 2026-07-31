@@ -1,32 +1,18 @@
--- Run this once in your Supabase SQL Editor to create the research table.
--- The agent writes to this table; the dashboard reads from it.
-
-CREATE TABLE IF NOT EXISTS crypto_research (
-    id BIGSERIAL PRIMARY KEY,
-    symbol TEXT NOT NULL,
-    report_type TEXT NOT NULL,       -- 'market_analysis', 'backtest_result', 'signal', 'factor_score', 'news_summary'
-    title TEXT NOT NULL,             -- short human-readable title
-    summary TEXT NOT NULL,           -- main research text / analysis
-    details JSONB DEFAULT '{}',      -- structured data (metrics, scores, config, etc.)
-    sentiment TEXT,                  -- 'bullish', 'bearish', 'neutral', or NULL
-    confidence REAL,                 -- 0.0 to 1.0, or NULL
-    source TEXT DEFAULT 'vibe-trading',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+create table signals (
+    id uuid primary key default gen_random_uuid(),
+    timestamp timestamptz not null,
+    symbol text not null,
+    strategy text not null,
+    direction text not null check (direction in ('BUY', 'SELL')),
+    price numeric not null,
+    strength numeric not null check (strength >= 0 and strength <= 1),
+    metadata jsonb not null,
+    research_sweep_id uuid,
+    created_at timestamptz default now(),
+    foreign key (research_sweep_id) references research_runs(run_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_research_symbol ON crypto_research(symbol);
-CREATE INDEX IF NOT EXISTS idx_research_created ON crypto_research(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_research_type ON crypto_research(report_type);
-
--- Allow public read access (matching existing dashboard policy)
-ALTER TABLE crypto_research ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE tablename = 'crypto_research' AND policyname = 'Allow public read'
-    ) THEN
-        CREATE POLICY "Allow public read" ON crypto_research FOR SELECT USING (true);
-    END IF;
-END
-$$;
+-- Indexes for performance
+create index idx_signals_symbol on signals(symbol);
+create index idx_signals_timestamp on signals(timestamp);
+create index idx_signals_strategy on signals(strategy);
