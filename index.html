@@ -17,32 +17,59 @@
 </head>
 <body>
   <main>
-    <header class="brand">
+    <header class="hero">
+      <div class="hero-mark" aria-hidden="true">◆</div>
       <h1>Trader's Lab</h1>
-      <p>Crypto research &amp; trading terminal</p>
+      <p class="hero-tagline">Crypto research &amp; trading terminal</p>
+      <p class="hero-desc">Technical charting, signal building, cross-pair research, and paper trading — all in one place. No server required.</p>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <span class="hero-stat-value">12</span>
+          <span class="hero-stat-label">Indicators</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">30</span>
+          <span class="hero-stat-label">Pairs</span>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">9,437</span>
+          <span class="hero-stat-label">Strategies</span>
+        </div>
+      </div>
     </header>
     <div class="cards">
       <a class="card" href="charts.html" aria-label="Open Charts terminal — technical indicators, signal builder, paper trading">
-        <div class="icon" aria-hidden="true">📈</div>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
         <h2>Charts</h2>
         <p>Technical indicators, signal builder, paper trading. One pair at a time, deep focus.</p>
         <span class="badge">Open Terminal</span>
       </a>
       <a class="card" href="research.html" aria-label="Open Research dashboard — cross-pair sentiment consensus and strategy history">
-        <div class="icon" aria-hidden="true">🔬</div>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
         <h2>Research</h2>
         <p>Cross-pair dashboard — sentiment consensus, best strategies, research history. All pairs at once.</p>
         <span class="badge">Open Dashboard</span>
       </a>
       <a class="card" href="simulation.html" aria-label="Open Simulation — synthetic FRED/USDT paper trading in real-time">
-        <div class="icon" aria-hidden="true">🤖</div>
+        <div class="card-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
         <h2>Simulation</h2>
         <p>Synthetic FRED/USDT market — real-time paper trading bot with live chart and portfolio tracking.</p>
         <span class="badge">Launch Sim</span>
       </a>
     </div>
+    <footer class="site-footer">
+      <span>Trader's Lab — static frontend, runs on GitHub Pages</span>
+      <span class="footer-sep">·</span>
+      <a href="charts.html">Launch Terminal</a>
+    </footer>
   </main>
   <script src="js/strategies.js" defer></script>
-<script src="js/index.js" defer></script>
+  <script src="js/index.js" defer></script>
 </body>
 </html>

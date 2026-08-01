@@ -824,6 +824,9 @@
             document.getElementById('signalResult').innerHTML = '';
             // Also clear strategy overlay
             document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
+            // Hide bottom trades panel
+            const chartBottom = document.getElementById('chartBottom');
+            if (chartBottom) chartBottom.classList.remove('visible');
         }
 
         // ── Signal Helpers ──
@@ -1228,6 +1231,10 @@
 
             clearSignal(); // Wipe previous strategy's markers/state before drawing new ones
 
+            // Show bottom trades panel when a strategy is active
+            const chartBottom = document.getElementById('chartBottom');
+            if (chartBottom) chartBottom.classList.add('visible');
+
             // Highlight this strategy card
             document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
             const cards = document.querySelectorAll('.strat-item');
@@ -1497,9 +1504,9 @@
             tradeBtn.disabled = true;
 
             try {
-                const qty = parseFloat(document.getElementById('tradeQty').value);
+                const qty = parseFloat(document.getElementById('tradeQtyBottom').value);
                 if (!qty || qty <= 0) { alert('Enter a valid quantity.'); return; }
-                const side = document.getElementById('tradeSide').value;
+                const side = document.getElementById('tradeSideBottom').value;
                 const priceInfo = getCurrentPrice();
                 if (!priceInfo) { alert('No price data available.'); return; }
                 if (!priceInfo.live) { alert('Price data is stale — cannot place a live trade until fresh price data is available.'); return; }
@@ -1768,7 +1775,7 @@
         }
 
         function renderPositions(positions) {
-            const list = document.getElementById('positionsList');
+            const list = document.getElementById('positionsListBottom');
             if (positions.length === 0) {
                 list.innerHTML = '<div style="text-align:center;padding:8px;font-size:11px;color:var(--text-muted);">No open positions.</div>';
                 return;
@@ -1811,11 +1818,11 @@
 
             // Update equity
             const equity = tradeCash + totalUnrealized;
-            document.getElementById('accountEquity').innerText = `$${equity.toFixed(2)}`;
+            document.getElementById('accountEquityBottom').innerText = `$${equity.toFixed(2)}`;
         }
 
         function renderOrders(orders) {
-            const list = document.getElementById('ordersList');
+            const list = document.getElementById('ordersListBottom');
             if (orders.length === 0) {
                 list.innerHTML = '<div style="text-align:center;padding:8px;font-size:10px;color:var(--text-muted);">No orders yet.</div>';
                 return;
@@ -1837,7 +1844,7 @@
 
         function updateTradePrice() {
             const pInfo = getCurrentPrice();
-            document.getElementById('tradePriceLabel').innerText = !pInfo
+            document.getElementById('tradePriceLabelBottom').innerText = !pInfo
                 ? 'Price: –'
                 : pInfo.live
                     ? `Price: $${pInfo.value.toFixed(2)}`
@@ -2153,9 +2160,12 @@
 
         // ── Client-Side Backtest Simulation ──
 
-        function runBacktestOnStrategy(strategyName, params) {
-            const fn = STRATEGY_SIGNAL_FNS[strategyName];
-            if (!fn || !historicalData || historicalData.length < 30) return;
+         function runBacktestOnStrategy(strategyName, params) {
+             const fn = STRATEGY_SIGNAL_FNS[strategyName];
+             if (!fn || !historicalData || historicalData.length < 30) return;
+
+             // Show the bottom trades panel when a strategy is active
+             showBottomPanel();
 
             // Highlight active card
             document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
@@ -2421,6 +2431,22 @@
             document.getElementById('backtestMetrics').style.display = 'none';
             document.getElementById('backtestSummary').style.display = 'block';
         };
+
+        function toggleBottomPanel() {
+            const panel = document.getElementById('chartBottom');
+            if (!panel) return;
+            panel.classList.toggle('visible');
+            const btn = document.getElementById('bottomPanelToggle');
+            if (btn) btn.innerText = panel.classList.contains('visible') ? '▼ Collapse' : '▲ Expand';
+        }
+
+        function showBottomPanel() {
+            const panel = document.getElementById('chartBottom');
+            if (!panel) return;
+            panel.classList.add('visible');
+            const btn = document.getElementById('bottomPanelToggle');
+            if (btn) btn.innerText = '▼ Collapse';
+        }
 
         // Delegated click for strategy items — runs backtest instead of raw signals
         document.getElementById('stratFeed').addEventListener('click', (e) => {
