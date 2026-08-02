@@ -692,19 +692,19 @@
 .bt-trade-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .bt-trade-table th {
   text-align: left;
-  padding: 2px 4px;
+  padding: 4px 6px;
   color: var(--color-text-secondary);
   font-weight: 500;
   border-bottom: 1px solid var(--color-border);
 }
 
 .bt-trade-table td {
-  padding: 3px 4px;
+  padding: 5px 6px;
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
 }
@@ -796,11 +796,13 @@
 }
 
 /* -------------------------------------------------------
-   Chart Bottom Panel — trades at bottom when strategies active
+   Chart Bottom Panel ï¿½ trades at bottom when strategies active
    ------------------------------------------------------- */
 .chart-area {
   display: flex;
   flex-direction: column;
+  flex: 1;        /* grow to fill .main-layout width between the two fixed sidebars */
+  min-width: 0;   /* prevent intrinsic content width from re-collapsing flex:1 */
   min-height: 0;
 }
 
@@ -840,6 +842,40 @@
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+/* Tabs inside the chart bottom panel */
+.bottom-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.bottom-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.bottom-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.bottom-tab.active {
+  color: var(--color-text-primary);
+  background: var(--color-surface-base);
+  border-color: var(--color-border);
+}
+
+/* Backtest trades pane â€” fills the bottom panel width */
+.bt-trade-section-bottom {
+  flex: 1;
+  min-width: 0;
 }
 
 .chart-bottom-body {

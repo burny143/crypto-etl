@@ -1,6 +1,11 @@
 // charts.js — Trading terminal UI logic
 // Depends on shared.js (must be loaded first)
 
+(function() {
+    // IIFE wrapper to encapsulate all code and prevent global namespace pollution.
+    // Inline onclick=/onchange= attributes execute in global scope, so the
+    // functions they reference are explicitly exposed on window at the bottom.
+
 // Indicator Definitions
         const INDICATOR_DEFS = [
             { name: "sma", label: "SMA", color: "#f59e0b", scale: "overlay", params: [{ key: "period", label: "Period", min: 2, max: 200, def: 20 }] },
@@ -42,6 +47,16 @@
         let signalChartMarkers = [];
         // Cache of latest closes for each symbol (populated by loadChartData)
         let symbolPriceCache = {};
+        // CRITICAL FIX: Replace candleMarkers._markers with currentChartMarkers.
+        // This prevents reliance on undocumented internal LightweightCharts API.
+        let currentChartMarkers = [];
+
+        // Single source of truth for chart markers: always write through this
+        // helper instead of reading back from candleMarkers._markers.
+        function setChartMarkers(markers) {
+            currentChartMarkers = markers;
+            if (candleMarkers) candleMarkers.setMarkers(markers);
+        }
 
         // ── Indicator Computation (pure JS — no backend needed) ──
 
@@ -664,7 +679,7 @@
             }).join('');
         }
 
-        window.updateCond = function(idx, field, value) {
+        function updateCond(idx, field, value) {
             if (field === 'indicator') {
                 const def = INDICATOR_DEFS.find(d => d.name === value);
                 const params = {};
@@ -693,7 +708,7 @@
             }
         };
 
-        window.updateCondParam = function(idx, key, value) {
+        function updateCondParam(idx, key, value) {
             const cond = signalConditions[idx];
             if (!cond) return;
             const def = INDICATOR_DEFS.find(d => d.name === cond.indicator);
@@ -815,12 +830,12 @@
                     ? { time: s.time, position: 'belowBar', shape: 'arrowUp', color: '#089981', text: 'B' }
                     : { time: s.time, position: 'aboveBar', shape: 'arrowDown', color: '#F23645', text: 'S' };
             });
-            if (candleMarkers) candleMarkers.setMarkers(signalChartMarkers);
+            setChartMarkers(signalChartMarkers);
         }
 
         function clearSignal() {
             signalChartMarkers = [];
-            if (candleMarkers) candleMarkers.setMarkers([]);
+            setChartMarkers([]);
             document.getElementById('signalResult').innerHTML = '';
             // Also clear strategy overlay
             document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
@@ -1258,7 +1273,7 @@
                     ? { time: s.time, position: 'belowBar', shape: 'arrowUp', color: '#089981', text: 'B' }
                     : { time: s.time, position: 'aboveBar', shape: 'arrowDown', color: '#F23645', text: 'S' };
             });
-            if (candleMarkers) candleMarkers.setMarkers(signalChartMarkers);
+            setChartMarkers(signalChartMarkers);
 
             // Show summary
             const buys = signals.filter(s => s.signal === 1).length;
@@ -1917,9 +1932,15 @@
             refreshTradingUI();
         }
 
+        // CONSOLIDATE: Single helper for timeframe classification.
+        // 1h and 4h are intraday; everything else is treated as daily.
+        function isIntradayTimeframe(tf) {
+            return tf === '1h' || tf === '4h';
+        }
+
         function toChartTime(datetime) {
             // Lightweight Charts v5 expects Unix timestamp in seconds for intraday, string 'YYYY-MM-DD' for daily+
-            if (['1h', '4h'].includes(currentTimeframe)) {
+            if (isIntradayTimeframe(currentTimeframe)) {
                 return Math.floor(new Date(datetime).getTime() / 1000);
             }
             return datetime.split('T')[0];
@@ -2043,7 +2064,7 @@
 
         let backtestMarkers = [];
 
-        window.loadBacktestFile = function(event) {
+        function loadBacktestFile(event) {
             const file = event.target.files[0];
             if (!file) return;
             const reader = new FileReader();
@@ -2061,7 +2082,7 @@
             event.target.value = ''; // allow re-selecting same file
         };
 
-        window.renderBacktestResults = function(data) {
+        function renderBacktestResults(data) {
             const m = data.metrics || {};
             const trades = data.trades || [];
 
@@ -2086,11 +2107,16 @@
             document.getElementById('btSymbol').textContent = data.symbol || '—';
             document.getElementById('btTimeframe').textContent = data.timeframe || '—';
 
+            // Render the detailed trade list in the bottom panel and surface it
+            renderTradeRows(trades);
+            showBottomPanel();
+            switchBottomTab('backtest');
+
             // Render trade markers on chart
             clearBacktestMarkers();
             if (trades.length && typeof candleMarkers !== 'undefined' && candleMarkers) {
                 const markers = [];
-                const isDaily = currentTimeframe === '1d';
+                const isDaily = !isIntradayTimeframe(currentTimeframe);
                 trades.forEach(t => {
                     // Convert entry/exit to chart time format matching the series
                     const entryTime = t.entry_time ? toMarkerTime(t.entry_time, isDaily) : null;
@@ -2117,35 +2143,32 @@
                     }
                 });
                 backtestMarkers = markers;
-                const existing = candleMarkers._markers || [];
                 // Keep signal markers (B/S) alongside new backtest markers
-                const signalOnly = existing.filter(m => {
+                const signalOnly = currentChartMarkers.filter(m => {
                     const text = m.text || '';
                     return text === 'B' || text === 'S';
                 });
-                candleMarkers.setMarkers([...signalOnly, ...markers]);
+                setChartMarkers([...signalOnly, ...markers]);
             }
         };
 
-        window.clearBacktestMarkers = function() {
-            if (typeof candleMarkers !== 'undefined' && candleMarkers) {
-                const existing = candleMarkers._markers || [];
-                // Filter out backtest markers (remove any we added)
-                const nonBt = existing.filter(m => {
-                    const text = m.text || '';
-                    // Remove BT entry markers, TP/SL, and PnL percentage markers (e.g. '+2.8%', '-1.5%')
-                    return !text.startsWith('BT ') && text !== 'TP' && text !== 'SL' && !/^[+-]\d+\.\d+%$/.test(text);
-                });
-                candleMarkers.setMarkers(nonBt);
-            }
+        function clearBacktestMarkers() {
+            // Filter out backtest markers (remove any we added) from the single
+            // source of truth, currentChartMarkers, instead of candleMarkers._markers.
+            const nonBt = currentChartMarkers.filter(m => {
+                const text = m.text || '';
+                // Remove BT entry markers, TP/SL, and PnL percentage markers (e.g. '+2.8%', '-1.5%')
+                return !text.startsWith('BT ') && text !== 'TP' && text !== 'SL' && !/^[+-]\d+\.\d+%$/.test(text);
+            });
+            setChartMarkers(nonBt);
             backtestMarkers = [];
-        };
+        }
 
         // ── End Backtest Results ──
 
         // ── Detailed Trade List Toggles ──
 
-        window.toggleTradeList = function() {
+        function toggleTradeList() {
             const body = document.getElementById('btTradeBody');
             const toggle = document.getElementById('btTradeToggle');
             const isVisible = body && body.style.display !== 'none';
@@ -2153,9 +2176,61 @@
             if (toggle) toggle.textContent = isVisible ? '▶' : '▼';
         };
 
-        window.toggleTradeDetail = function(idx) {
+        function toggleTradeDetail(idx) {
             const row = document.getElementById('btTradeDetail' + idx);
             if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+        };
+
+        // Renders the backtest trade list into the bottom-panel table (#btTradeBody).
+        // Shared by the JSON-file path (renderBacktestResults) and the client-side
+        // simulation path (runBacktestOnStrategy). Expands the table by default.
+        function renderTradeRows(trades) {
+            const list = trades || [];
+            const countEl = document.getElementById('btTradeCount');
+            if (countEl) countEl.textContent = list.length;
+            const bodyEl = document.getElementById('btTradeBody');
+            const toggleEl = document.getElementById('btTradeToggle');
+            if (bodyEl) bodyEl.style.display = 'block';
+            if (toggleEl) toggleEl.textContent = '▼';
+            const tbody = document.getElementById('btTradeRows');
+            if (!tbody) return;
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="padding:10px;text-align:center;color:var(--text-muted);">No trades in this backtest.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map((t, idx) => {
+                const entryStr = typeof t.entry_time === 'number' ? new Date(t.entry_time * 1000).toLocaleString() : (t.entry_time || '—');
+                const exitStr = typeof t.exit_time === 'number' ? new Date(t.exit_time * 1000).toLocaleString() : (t.exit_time || '—');
+                const ep = t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : '—';
+                const xp = t.exit_price != null ? `$${Number(t.exit_price).toFixed(2)}` : '—';
+                const sideLabel = t.side === 'long' ? 'LONG' : 'SHORT';
+                const sideColor = t.side === 'long' ? 'var(--up)' : 'var(--down)';
+                const pnlColor = t.pnl >= 0 ? 'var(--up)' : 'var(--down)';
+                const pnlStr = t.pnl >= 0 ? `+${(t.pnl_pct || 0).toFixed(2)}%` : `${(t.pnl_pct || 0).toFixed(2)}%`;
+                const epNum = Number(t.entry_price);
+                const xpNum = Number(t.exit_price);
+                const formulaStr = t.side === 'long'
+                    ? `($${xpNum.toFixed(2)} − $${epNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`
+                    : `($${epNum.toFixed(2)} − $${xpNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`;
+                return `<tr onclick="toggleTradeDetail(${idx})">
+                    <td>${idx + 1}</td>
+                    <td>${entryStr}</td>
+                    <td>${exitStr}</td>
+                    <td style="color:${sideColor};font-weight:600;">${sideLabel}</td>
+                    <td class="num">${ep}</td>
+                    <td class="num">${xp}</td>
+                    <td class="num" style="color:${pnlColor};font-weight:600;">${pnlStr}</td>
+                </tr>
+                <tr id="btTradeDetail${idx}" class="bt-trade-detail" style="display:none;">
+                    <td colspan="7" style="padding:4px 8px 6px;">
+                        <strong>Side:</strong> ${sideLabel}<br>
+                        <strong>Entry:</strong> ${entryStr} @ ${ep}<br>
+                        <strong>Exit:</strong> ${exitStr} @ ${xp}<br>
+                        <strong>PnL:</strong> ${pnlStr}<br>
+                        <strong>Formula:</strong> ${formulaStr} = ${(t.pnl_pct || 0).toFixed(2)}%
+                    </td>
+                </tr>`;
+            }).join('');
         };
 
         // ── Client-Side Backtest Simulation ──
@@ -2166,6 +2241,7 @@
 
              // Show the bottom trades panel when a strategy is active
              showBottomPanel();
+             switchBottomTab('backtest');
 
             // Highlight active card
             document.querySelectorAll('.strat-item.active').forEach(el => el.classList.remove('active'));
@@ -2313,41 +2389,8 @@
             document.getElementById('btSymbol').textContent = currentSymbol;
             document.getElementById('btTimeframe').textContent = currentTimeframe;
 
-            // ── Render detailed trade list ──
-            document.getElementById('btTradeCount').textContent = trades.length;
-            const tbody = document.getElementById('btTradeRows');
-            tbody.innerHTML = trades.map((t, idx) => {
-                const entryStr = typeof t.entry_time === 'number' ? new Date(t.entry_time * 1000).toLocaleString() : (t.entry_time || '—');
-                const exitStr = typeof t.exit_time === 'number' ? new Date(t.exit_time * 1000).toLocaleString() : (t.exit_time || '—');
-                const ep = t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : '—';
-                const xp = t.exit_price != null ? `$${Number(t.exit_price).toFixed(2)}` : '—';
-                const sideLabel = t.side === 'long' ? 'LONG' : 'SHORT';
-                const sideColor = t.side === 'long' ? 'var(--up)' : 'var(--down)';
-                const pnlColor = t.pnl >= 0 ? 'var(--up)' : 'var(--down)';
-                const pnlStr = t.pnl >= 0 ? `+${(t.pnl_pct || 0).toFixed(2)}%` : `${(t.pnl_pct || 0).toFixed(2)}%`;
-                const epNum = Number(t.entry_price);
-                const xpNum = Number(t.exit_price);
-                const formulaStr = t.side === 'long'
-                    ? `($${xpNum.toFixed(2)} − $${epNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`
-                    : `($${epNum.toFixed(2)} − $${xpNum.toFixed(2)}) ÷ $${epNum.toFixed(2)}`;
-                return `<tr onclick="toggleTradeDetail(${idx})">
-                    <td>${idx + 1}</td>
-                    <td style="font-size:9px;">${entryStr}</td>
-                    <td style="color:${sideColor};font-weight:600;">${sideLabel}</td>
-                    <td class="num">${ep}</td>
-                    <td class="num">${xp}</td>
-                    <td class="num" style="color:${pnlColor};font-weight:600;">${pnlStr}</td>
-                </tr>
-                <tr id="btTradeDetail${idx}" class="bt-trade-detail" style="display:none;">
-                    <td colspan="6" style="padding:4px 8px 6px;">
-                        <strong>Side:</strong> ${sideLabel}<br>
-                        <strong>Entry:</strong> ${entryStr} @ ${ep}<br>
-                        <strong>Exit:</strong> ${exitStr} @ ${xp}<br>
-                        <strong>PnL:</strong> ${pnlStr}<br>
-                        <strong>Formula:</strong> ${formulaStr} = ${(t.pnl_pct || 0).toFixed(2)}%
-                    </td>
-                </tr>`;
-            }).join('');
+            // ── Render detailed trade list (bottom panel) ──
+            renderTradeRows(trades);
 
             // ── Render trade markers on chart ──
             clearBacktestMarkers();
@@ -2378,13 +2421,12 @@
                     }
                 });
                 backtestMarkers = markers;
-                const existing = candleMarkers._markers || [];
                 // Also keep signal markers if any
-                const signalOnly = existing.filter(m => {
+                const signalOnly = currentChartMarkers.filter(m => {
                     const text = m.text || '';
                     return text === 'B' || text === 'S';
                 });
-                candleMarkers.setMarkers([...signalOnly, ...markers]);
+                setChartMarkers([...signalOnly, ...markers]);
             }
 
             // ── Signal result / trade log ──
@@ -2430,6 +2472,15 @@
             clearBacktestMarkers();
             document.getElementById('backtestMetrics').style.display = 'none';
             document.getElementById('backtestSummary').style.display = 'block';
+            // Reset the bottom-panel trades table so stale rows don't linger
+            const countEl = document.getElementById('btTradeCount');
+            if (countEl) countEl.textContent = '0';
+            const bodyEl = document.getElementById('btTradeBody');
+            if (bodyEl) bodyEl.style.display = 'none';
+            const toggleEl = document.getElementById('btTradeToggle');
+            if (toggleEl) toggleEl.textContent = '▶';
+            const tbody = document.getElementById('btTradeRows');
+            if (tbody) tbody.innerHTML = '';
         };
 
         function toggleBottomPanel() {
@@ -2448,6 +2499,20 @@
             if (btn) btn.innerText = '▼ Collapse';
         }
 
+        // Switches the bottom panel between the "Paper Trading" and
+        // "Backtest Trades" panes. Invoked from the inline tab buttons.
+        function switchBottomTab(tab) {
+            const isPaper = tab === 'paper';
+            const paperPane = document.getElementById('bottomPanePaper');
+            const btPane = document.getElementById('bottomPaneBacktest');
+            if (paperPane) paperPane.style.display = isPaper ? 'flex' : 'none';
+            if (btPane) btPane.style.display = isPaper ? 'none' : 'flex';
+            document.querySelectorAll('.bottom-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+            // Equity is only relevant to the paper trading pane
+            const equity = document.getElementById('accountEquityBottom');
+            if (equity) equity.style.display = isPaper ? '' : 'none';
+        }
+
         // Delegated click for strategy items — runs backtest instead of raw signals
         document.getElementById('stratFeed').addEventListener('click', (e) => {
             const item = e.target.closest('.strat-item');
@@ -2457,10 +2522,38 @@
             runBacktestOnStrategy(strategy, params);
         });
 
-        // Boot
-        initChart();
-        initIndicators();
-        addSignalCondition('rsi', { period: 14 }, 'lt', 30, 'long');
-        addSignalCondition('rsi', { period: 14 }, 'gt', 70, 'short');
-        loadWatchlist();
-        initTrading(); // fire-and-forget (async, updates UI when ready)
+        // ── Expose functions referenced by inline HTML handlers on window ──
+        // Inline onclick=/onchange= attributes execute in global scope, so every
+        // function invoked from charts.html or from generated HTML must be a
+        // window property (the IIFE keeps everything else private).
+        window.addSignalCondition = addSignalCondition;
+        window.removeSignalCondition = removeSignalCondition;
+        window.updateCond = updateCond;
+        window.updateCondParam = updateCondParam;
+        window.runSignal = runSignal;
+        window.clearSignal = clearSignal; // wrapped version (also clears backtest)
+        window.placeOrder = placeOrder;
+        window.closePosition = closePosition;
+        window.generateResearch = generateResearch;
+        window.loadBacktestFile = loadBacktestFile;
+        window.renderBacktestResults = renderBacktestResults;
+        window.clearBacktestMarkers = clearBacktestMarkers;
+        window.toggleTradeList = toggleTradeList;
+        window.toggleTradeDetail = toggleTradeDetail;
+        window.switchBottomTab = switchBottomTab;
+
+        // ── Boot ──
+        // Wrapped in try/catch so a single missing-function regression fails
+        // loudly in the console instead of silently killing the whole chart
+        // (previously initIndicators() threw before loadWatchlist() ever ran).
+        try {
+            initChart();
+            initIndicators();
+            addSignalCondition('rsi', { period: 14 }, 'lt', 30, 'long');
+            addSignalCondition('rsi', { period: 14 }, 'gt', 70, 'short');
+            loadWatchlist();
+            initTrading(); // fire-and-forget (async, updates UI when ready)
+        } catch (e) {
+            console.error('[charts.js] Boot sequence failed:', e);
+        }
+    })();

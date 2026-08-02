@@ -87,108 +87,54 @@
             </div>
         </aside>
 
-        <!-- Main Chart -->
-        <main class="chart-container">
-            <div id="tvchart"></div>
-        </main>
-
-        <!-- Research Panel -->
-        <aside class="sidebar right">
-            <div class="panel-header panel-action">
-                <span>AI Insights</span>
-                <button class="btn-sm" onclick="generateResearch()">Generate</button>
+        <!-- Main Chart + Bottom Trades -->
+        <main class="chart-area">
+            <div class="chart-container">
+                <div id="tvchart"></div>
             </div>
-            <div class="research-feed" id="researchFeed">
-                <div class="empty-state-sm">Loading insights...</div>
-            </div>
-
-            <!-- Strategy Results -->
-            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
-                <span>Top Strategies</span>
-                <span id="stratCount" class="text-muted-sm"></span>
-            </div>
-            <div class="strat-feed" id="stratFeed">
-                <div class="strat-loading">Select a pair to see top strategies...</div>
-            </div>
-
-            <!-- Paper Trading -->
-            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
-                <span>Paper Trading</span>
-                <span id="accountEquity" class="equity-label">$10,000</span>
-            </div>
-            <div class="trade-panel" id="tradePanel">
-                <div class="trade-form">
-                    <div class="trade-row">
-                        <input type="number" id="tradeQty" value="0.01" min="0.0001" step="0.001">
-                        <select id="tradeSide">
+            <!-- Bottom trades panel — shown when strategies are active -->
+            <div class="chart-bottom" id="chartBottom">
+                <div class="chart-bottom-header">
+                    <div class="bottom-tabs">
+                        <button type="button" class="bottom-tab active" data-tab="paper" onclick="switchBottomTab('paper')">Paper Trading</button>
+                        <button type="button" class="bottom-tab" data-tab="backtest" onclick="switchBottomTab('backtest')">Backtest Trades</button>
+                    </div>
+                    <span id="accountEquityBottom" class="equity-label">$10,000</span>
+                </div>
+                <div class="chart-bottom-body" id="bottomPanePaper">
+                    <div class="trade-form-inline">
+                        <input type="number" id="tradeQtyBottom" value="0.01" min="0.0001" step="0.001">
+                        <select id="tradeSideBottom">
                             <option value="long" style="color:var(--color-up);">Long</option>
                             <option value="short" style="color:var(--color-down);">Short</option>
                         </select>
                         <button class="trade-btn" onclick="placeOrder()">Trade</button>
+                        <span class="trade-price-label-bottom" id="tradePriceLabelBottom">Price: –</span>
                     </div>
-                    <div class="trade-price-label">
-                        <span id="tradePriceLabel">Price: –</span>
+                    <div class="chart-bottom-panels">
+                        <div class="bottom-panel" id="positionsContainerBottom">
+                            <div class="section-label">Positions</div>
+                            <div id="positionsListBottom" class="empty-state-sm">No open positions.</div>
+                        </div>
+                        <div class="bottom-panel" id="ordersContainerBottom">
+                            <div class="section-label">Recent Orders</div>
+                            <div id="ordersListBottom" class="empty-state-sm">No orders yet.</div>
+                        </div>
                     </div>
                 </div>
-
-                <div id="positionsContainer" style="margin-top:var(--space-2);">
-                    <div class="section-label">Positions</div>
-                    <div id="positionsList" class="empty-state-sm">No open positions.</div>
-                </div>
-
-                <div id="ordersContainer" style="margin-top:var(--space-2);border-top:1px solid var(--color-border);padding-top:6px;">
-                    <div class="section-label">Recent Orders</div>
-                    <div id="ordersList" class="empty-state-sm">No orders yet.</div>
-                </div>
-            </div>
-
-            <!-- Backtest Results -->
-            <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
-                <span>Backtest Results</span>
-                <button class="btn-sm" onclick="document.getElementById('backtestFileInput').click()">Load</button>
-                <input type="file" id="backtestFileInput" accept=".json" style="display:none" onchange="loadBacktestFile(event)">
-            </div>
-            <div class="bt-panel" id="backtestResultsPanel">
-                <div id="backtestSummary" class="empty-state-sm">Load a backtest JSON file to see results.</div>
-                <div id="backtestMetrics" style="display:none;">
-                    <div class="bt-grid">
-                        <div class="bt-tile">
-                            <div class="bt-tile-value" id="btReturn">—</div>
-                            <div class="bt-tile-label">Return</div>
-                        </div>
-                        <div class="bt-tile">
-                            <div class="bt-tile-value" id="btSharpe">—</div>
-                            <div class="bt-tile-label">Sharpe</div>
-                        </div>
-                        <div class="bt-tile">
-                            <div class="bt-tile-value" id="btDrawdown">—</div>
-                            <div class="bt-tile-label">Max DD</div>
-                        </div>
-                        <div class="bt-tile">
-                            <div class="bt-tile-value" id="btWinRate">—</div>
-                            <div class="bt-tile-label">Win Rate</div>
-                        </div>
-                    </div>
-                    <div class="bt-summary-row">
-                        <span>Trades: <strong id="btTrades">0</strong></span>
-                        <span>Profit Factor: <strong id="btProfitFactor">—</strong></span>
-                    </div>
-                    <div class="bt-meta">
-                        Strategy: <span id="btStrategy">—</span>
-                        &middot; <span id="btSymbol">—</span> <span id="btTimeframe">—</span>
-                    </div>
-                    <!-- Detailed trade list -->
-                    <div class="bt-trade-section">
+                <div class="chart-bottom-body" id="bottomPaneBacktest" style="display:none;">
+                    <div class="bt-trade-section bt-trade-section-bottom">
                         <div class="bt-trade-header" onclick="toggleTradeList()">
-                            <span>Trades (<span id="btTradeCount">0</span>)</span>
+                            <span>Backtest Trades (<span id="btTradeCount">0</span>)</span>
                             <span id="btTradeToggle">▶</span>
                         </div>
-                        <div id="btTradeBody" style="display:none;margin-top:4px;">
+                        <div id="btTradeBody" style="display:none;margin-top:6px;">
                             <table class="bt-trade-table">
                                 <thead>
                                     <tr>
                                         <th>#</th>
                                         <th>Entry</th>
+                                        <th>Exit</th>
                                         <th>Side</th>
                                         <th class="num">Entry $</th>
                                         <th class="num">Exit $</th>
@@ -202,9 +148,69 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </main>
 
-                    <div style="margin-top:6px; display:flex; gap:var(--space-1);">
-                        <button onclick="clearBacktestMarkers()" class="btn-outline-sm" style="flex:1;">Clear Markers</button>
+        <!-- Right Sidebar — scrollable -->
+        <aside class="sidebar right">
+            <div class="sidebar-scroll">
+                <!-- Research Panel -->
+                <div class="panel-header panel-action">
+                    <span>AI Insights</span>
+                    <button class="btn-sm" onclick="generateResearch()">Generate</button>
+                </div>
+                <div class="research-feed" id="researchFeed">
+                    <div class="empty-state-sm">Loading insights...</div>
+                </div>
+
+                <!-- Strategy Results -->
+                <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
+                    <span>Top Strategies</span>
+                    <span id="stratCount" class="text-muted-sm"></span>
+                </div>
+                <div class="strat-feed" id="stratFeed">
+                    <div class="strat-loading">Select a pair to see top strategies...</div>
+                </div>
+
+                <!-- Backtest Results -->
+                <div class="panel-header panel-action" style="border-top:1px solid var(--color-border);">
+                    <span>Backtest Results</span>
+                    <button class="btn-sm" onclick="document.getElementById('backtestFileInput').click()">Load</button>
+                    <input type="file" id="backtestFileInput" accept=".json" style="display:none" onchange="loadBacktestFile(event)">
+                </div>
+                <div class="bt-panel" id="backtestResultsPanel">
+                    <div id="backtestSummary" class="empty-state-sm">Load a backtest JSON file to see results.</div>
+                    <div id="backtestMetrics" style="display:none;">
+                        <div class="bt-grid">
+                            <div class="bt-tile">
+                                <div class="bt-tile-value" id="btReturn">—</div>
+                                <div class="bt-tile-label">Return</div>
+                            </div>
+                            <div class="bt-tile">
+                                <div class="bt-tile-value" id="btSharpe">—</div>
+                                <div class="bt-tile-label">Sharpe</div>
+                            </div>
+                            <div class="bt-tile">
+                                <div class="bt-tile-value" id="btDrawdown">—</div>
+                                <div class="bt-tile-label">Max DD</div>
+                            </div>
+                            <div class="bt-tile">
+                                <div class="bt-tile-value" id="btWinRate">—</div>
+                                <div class="bt-tile-label">Win Rate</div>
+                            </div>
+                        </div>
+                        <div class="bt-summary-row">
+                            <span>Trades: <strong id="btTrades">0</strong></span>
+                            <span>Profit Factor: <strong id="btProfitFactor">—</strong></span>
+                        </div>
+                        <div class="bt-meta">
+                            Strategy: <span id="btStrategy">—</span>
+                            &middot; <span id="btSymbol">—</span> <span id="btTimeframe">—</span>
+                        </div>
+                        <div style="margin-top:6px; display:flex; gap:var(--space-1);">
+                            <button onclick="clearBacktestMarkers()" class="btn-outline-sm" style="flex:1;">Clear Markers</button>
+                        </div>
                     </div>
                 </div>
             </div>
