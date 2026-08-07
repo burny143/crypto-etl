@@ -4,7 +4,7 @@ A complete **client-side vanilla HTML/JS** crypto trading research platform with
 
 ---
 
-## Quick Start
+## Quick Start.
 
 ```powershell
 cd crypto-etl
