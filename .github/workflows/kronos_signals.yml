@@ -1,0 +1,59 @@
+name: Kronos Signal ETL
+
+on:
+  schedule:
+    - cron: '35 0 * * *'   # 00:35 UTC daily — full 180-bar walk-forward recompute
+    - cron: '5 * * * *'    # every hour on the hour +5 — 1h refresh (recent 2 bars)
+    - cron: '20 */6 * * *' # 4h refresh (recent 6 bars)
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  kronos-signals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r kronos_model/requirements.txt
+          pip install supabase
+
+      # The vendored Kronos code imports `model.module` relatively; the root
+      # import path is the repo root. Model + tokenizer are pulled straight
+      # from HuggingFace Hub at runtime (no need to store weights in git).
+      - name: Run Kronos signal ETL (full daily)
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '35 0 * * *' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python kronos_signal_etl.py --timeframes 1d,4h,1h --max-eval-bars 180
+
+      - name: Run Kronos signal ETL (1h refresh)
+        if: ${{ github.event.schedule == '5 * * * *' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python kronos_signal_etl.py --timeframes 1h --recent-bars 2
+
+      - name: Run Kronos signal ETL (4h refresh)
+        if: ${{ github.event.schedule == '20 */6 * * *' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python kronos_signal_etl.py --timeframes 4h --recent-bars 6
+
+      - name: Upload log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kronos-signal-log
+          path: |
+            ./console.log
+            ./*.log
+          if-no-files-found: ignore

@@ -16,6 +16,7 @@
 - [x] Strategy results displayed in UI (Top Strategies panel)
 
 ## Phase 3 — Research-to-Chart Traceability (CURRENT MILESTONE)
+- [x] **Kronos + Trend research overlay** — precomputed walk-forward Kronos predictions + buy/sell signals (kronos_signal_etl.py, V9 tables, kronos_signals.yml workflow, charts.html Kronos AI overlay, ADR-0007, data contract, 13 unit tests)
 - [ ] Complete strategy definition data contract
 - [ ] Complete signal-event data contract with full traceability
 - [ ] Versioned research result linking strategies to chart markers
@@ -39,6 +40,6 @@
 
 ## Never Planned
 - Live trading or broker execution
-- Machine learning or reinforcement learning strategies
+- Machine learning or reinforcement learning **strategies** (the Kronos research overlay in Phase 3 is explicitly a precomputed, transparently-rule-driven research artifact with honest metrics — not a black-box trading strategy, see ADR-0005/ADR-0007)
 - React SPA or FastAPI backend development
 - LangGraph, MCP, or agent swarm integration

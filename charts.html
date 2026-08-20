@@ -59,6 +59,25 @@
                 </div>
             </div>
 
+            <div class="signal-menu">
+                <button class="indicator-btn" id="kronosToggleBtn" onclick="document.getElementById('kronosPanel').classList.toggle('show'); toggleKronosOverlay()">
+                    Kronos AI
+                </button>
+                <div class="signal-panel" id="kronosPanel" style="width:260px;">
+                    <div style="font-size:11px;color:var(--text-muted);padding:6px 8px;border-bottom:1px solid var(--border);">
+                        Precomputed Kronos + Trend overlay (research, not advice)
+                    </div>
+                    <div id="kronosMetrics" style="font-size:11px;padding:8px;">
+                        <div style="color:var(--text-muted);">Toggle to load…</div>
+                    </div>
+                    <div id="kronosDisclaimer" style="font-size:10px;color:var(--text-muted);padding:0 8px 8px;line-height:1.4;">
+                        Metrics come from the scheduled walk-forward ETL. Raw Kronos direction shows
+                        <strong>no validated edge</strong> (~40–49% sign accuracy on BTC/ETH daily/4h);
+                        this overlay displays measured performance, not a guarantee.
+                    </div>
+                </div>
+            </div>
+
             <label class="volume-toggle">
                 <input type="checkbox" id="volumeToggle" checked> Volume
             </label>

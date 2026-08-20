@@ -2029,6 +2029,8 @@
             const checkedNames = [];
             document.querySelectorAll('.ind-cb:checked').forEach(cb => { checkedNames.push(cb.value); });
             checkedNames.forEach(name => toggleIndicator(name, true, true));
+            // Reload the precomputed Kronos overlay if it was active (data changed)
+            if (kronosOverlayActive) toggleKronosOverlay(true).catch(e => console.warn('kronos reload error:', e));
             refreshTradingUI().catch(e => console.warn('refreshTradingUI error:', e));
             loadStrategyResults().catch(e => console.warn('loadStrategyResults error:', e));
         }
@@ -2165,6 +2167,173 @@
         }
 
         // ── End Backtest Results ──
+
+        // ── Kronos AI Overlay (precomputed research overlay, not advice) ──
+        // Reads kronos_predictions / kronos_signals written by the scheduled
+        // kronos_signal_etl.py job (anon key + RLS SELECT). Renders SMA(50) +
+        // predicted_close overlays, buy/sell markers, and the honest walk-forward
+        // metrics. No model runs in the browser (see ADR-0007).
+        let kronosOverlayActive = false;
+        let kronosOverlaySeries = []; // chart series we own (removed on cleanup)
+        let kronosMarkers = [];
+
+        function clearKronosOverlay() {
+            kronosOverlaySeries.forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
+            kronosOverlaySeries = [];
+            // Drop our markers from the single source of truth
+            const nonKronos = currentChartMarkers.filter(m => {
+                const text = m.text || '';
+                return !text.startsWith('K-');
+            });
+            setChartMarkers(nonKronos);
+            kronosMarkers = [];
+        }
+
+        async function loadKronosOverlay() {
+            const requestId = ++loadRequestId;
+            const metricsEl = document.getElementById('kronosMetrics');
+            metricsEl.innerHTML = '<div style="color:var(--text-muted);">Loading…</div>';
+
+            const [predResp, sigResp] = await Promise.all([
+                supabaseClient.from("kronos_predictions")
+                    .select("bar_timestamp,predicted_close,sma50,ensemble_vote")
+                    .eq("symbol", currentSymbol).eq("timeframe", currentTimeframe)
+                    .order("bar_timestamp", { ascending: true }),
+                supabaseClient.from("kronos_signals")
+                    .select("bar_timestamp,signal,reason,net_return_pct,buy_hold_pct,directional_accuracy_pct,evaluated_from,evaluated_to,model_used")
+                    .eq("symbol", currentSymbol).eq("timeframe", currentTimeframe)
+                    .order("bar_timestamp", { ascending: true }),
+            ]);
+            if (requestId !== loadRequestId) return;
+
+            const isDaily = !isIntradayTimeframe(currentTimeframe);
+
+            if ((!predResp.data || predResp.data.length === 0) && (!sigResp.data || sigResp.data.length === 0)) {
+                metricsEl.innerHTML = '<div style="color:var(--text-muted);">No Kronos data for this symbol/timeframe yet — the scheduled ETL has not run.</div>';
+                return;
+            }
+
+            // Render lines from predictions: SMA(50) overlay + predicted_close (dashed)
+            const pred = predResp.data || [];
+            const smaPoints = [], predPoints = [];
+            pred.forEach(p => {
+                const t = toChartTime(p.bar_timestamp);
+                if (!t) return;
+                if (p.sma50 != null && isFinite(Number(p.sma50))) smaPoints.push({ time: t, value: Number(p.sma50) });
+                if (p.predicted_close != null && isFinite(Number(p.predicted_close))) predPoints.push({ time: t, value: Number(p.predicted_close) });
+            });
+
+            // Fan out active-indicator slots (name-prefixed so toggleIndicator cleanup
+            // leaves them alone; we own cleanup directly instead).
+            let smaSeries = null, predSeries = null;
+            const baseOpts = { lastValueVisible: false, priceLineVisible: false };
+            // LineStyle enum is exported on the standalone build; fall back to the
+            // numeric value (2 = Dashed) in case a future build renames it.
+            const DASHED = (LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed) || 2;
+            try {
+                if (smaPoints.length > 0) {
+                    smaSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        ...baseOpts, color: '#f59e0b', lineWidth: 2, title: 'Kronos SMA50',
+                    });
+                    smaSeries.setData(smaPoints);
+                }
+                if (predPoints.length > 0) {
+                    predSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        ...baseOpts, color: '#a855f7', lineWidth: 1, lineStyle: DASHED, title: 'Kronos Pred',
+                    });
+                    predSeries.setData(predPoints);
+                }
+                kronosOverlaySeries = [smaSeries, predSeries].filter(Boolean);
+            } catch (e) {
+                console.warn('kronos overlay series error:', e);
+            }
+
+            // Markers from precomputed signals (buy/sell transitions)
+            const sigs = sigResp.data || [];
+            const newMarkers = sigs.map(s => {
+                const t = toMarkerTime(s.bar_timestamp, isDaily);
+                if (!t) return null;
+                if (s.signal === 'buy') return { time: t, position: 'belowBar', shape: 'arrowUp', color: '#089981', text: 'K-B' };
+                if (s.signal === 'sell') return { time: t, position: 'aboveBar', shape: 'arrowDown', color: '#F23645', text: 'K-S' };
+                return null;
+            }).filter(Boolean);
+            kronosMarkers = newMarkers;
+            // Merge with any non-kronos markers already on the chart (e.g. user B/S)
+            const nonKronos = currentChartMarkers.filter(m => {
+                const text = m.text || '';
+                return !text.startsWith('K-');
+            });
+            setChartMarkers([...nonKronos, ...kronosMarkers]);
+
+            // Honesty metrics from the newest signal row
+            const latest = sigs[sigs.length - 1];
+            const buys = sigs.filter(s => s.signal === 'buy').length;
+            const sells = sigs.filter(s => s.signal === 'sell').length;
+            if (!latest) {
+                metricsEl.innerHTML = '<div style="color:var(--text-muted);">Predictions loaded but no signal rows yet.</div>';
+                return;
+            }
+            const fmtPct = (v) => (v == null || !isFinite(v)) ? '—' : `${Number(v).toFixed(1)}%`;
+            const dirAcc = fmtPct(latest.directional_accuracy_pct);
+            const netRet = latest.net_return_pct;
+            const buyHold = latest.buy_hold_pct;
+            const netColor = (netRet == null || !isFinite(netRet)) ? 'var(--text-muted)' : (netRet >= 0 ? 'var(--up)' : 'var(--down)');
+            const bhColor = (buyHold == null || !isFinite(buyHold)) ? 'var(--text-muted)' : (buyHold >= 0 ? 'var(--up)' : 'var(--down)');
+            const range = latest.evaluated_from && latest.evaluated_to
+                ? `${new Date(latest.evaluated_from).toLocaleDateString()} → ${new Date(latest.evaluated_to).toLocaleDateString()}`
+                : '—';
+            const model = latest.model_used || '—';
+
+            metricsEl.innerHTML = `
+                <div style="display:flex;justify-content:space-between;font-size:12px;">
+                    <span>Signals</span>
+                    <span><span style="color:var(--up)">B ${buys}</span> · <span style="color:var(--down)">S ${sells}</span></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:5px;">
+                    <span>Dir accuracy</span>
+                    <span style="font-weight:600;">${dirAcc}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span>Net (long/flat)</span>
+                    <span style="font-weight:600;color:${netColor};">${fmtPct(netRet)}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span>Buy &amp; hold</span>
+                    <span style="font-weight:600;color:${bhColor};">${fmtPct(buyHold)}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:5px;color:var(--text-muted);font-size:10px;">
+                    <span>Evaluated</span>
+                    <span>${range} · ${latest.evaluated_bars ?? ''} bars</span>
+                </div>
+                <div style="margin-top:4px;color:var(--text-muted);font-size:10px;">Model: ${model}</div>
+            `;
+        }
+
+        async function toggleKronosOverlay(force) {
+            // Button click toggles; internal calls can force on/off while preserving
+            // the user-facing toggle state only if an explicit boolean is passed.
+            const explicit = typeof force === 'boolean';
+            kronosOverlayActive = explicit ? force : !kronosOverlayActive;
+
+            const btn = document.getElementById('kronosToggleBtn');
+            if (btn) btn.style.borderColor = kronosOverlayActive ? 'var(--color-accent)' : '';
+
+            if (!kronosOverlayActive) {
+                clearKronosOverlay();
+                const metricsEl = document.getElementById('kronosMetrics');
+                if (metricsEl) metricsEl.innerHTML = '<div style="color:var(--text-muted);">Toggle to load…</div>';
+                return;
+            }
+            try {
+                await loadKronosOverlay();
+            } catch (e) {
+                console.warn('Kronos overlay error:', e);
+                const metricsEl = document.getElementById('kronosMetrics');
+                if (metricsEl) metricsEl.innerHTML = '<div style="color:var(--down);font-size:11px;">Failed to load Kronos overlay.</div>';
+            }
+        }
+
+        // ── End Kronos AI Overlay ──
 
         // ── Detailed Trade List Toggles ──
 
@@ -2541,6 +2710,7 @@
         window.toggleTradeList = toggleTradeList;
         window.toggleTradeDetail = toggleTradeDetail;
         window.switchBottomTab = switchBottomTab;
+        window.toggleKronosOverlay = toggleKronosOverlay;
 
         // ── Boot ──
         // Wrapped in try/catch so a single missing-function regression fails

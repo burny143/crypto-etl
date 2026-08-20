@@ -1,0 +1,18 @@
+# kronos_model/requirements.txt — vendored Kronos inference dependencies
+# Mirrors KRONOS/requirements.txt (see KRONOS project) but scoped to the
+# CPU-only inference path used by kronos_signal_etl.py. matplotlib and
+# plotting-only tools from the original workspace are intentionally omitted.
+#
+# torch is pinned to a CPU wheel in the GitHub Actions workflow
+# (kronos_signals.yml) to keep the runner image small and fast:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# and this file then satisfies the rest.
+
+numpy
+pandas==2.2.2
+torch>=2.0.0
+
+einops==0.8.1
+huggingface_hub==0.33.1
+tqdm==4.67.1
+safetensors==0.6.2
