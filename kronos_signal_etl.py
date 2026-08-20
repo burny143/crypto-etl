@@ -334,7 +334,7 @@ def load_ohlcv(supabase, symbol: str, timeframe: str) -> pd.DataFrame | None:
     df = df.set_index("datetime")
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
-    df.dropna(subset=["open", "high", "low", "close"], inplace=True)
+    df.dropna(subset=["open", "high", "low", "close", "volume"], inplace=True)
     return df.sort_index()
 
 
@@ -392,8 +392,11 @@ def predict_bars_walkforward(
         if i < lookback:
             continue
         x = df.iloc[i - lookback : i]
-        x_timestamp = x.index
-        y_timestamp = pd.DatetimeIndex([df.index[i]])
+        # KronosPredictor.predict's calc_time_stamps() requires pandas.Series
+        # (it uses the .dt accessor); a DatetimeIndex has no .dt and raises
+        # AttributeError. This was the original "ETL ran but wrote 0 rows" bug.
+        x_timestamp = pd.Series(x.index.values, index=x.index)
+        y_timestamp = pd.Series([df.index[i].to_pydatetime()])
         try:
             pred = predictor.predict(
                 df=x.drop(columns=[]),  # predictor accepts columns open/high/low/close/volume/amount
